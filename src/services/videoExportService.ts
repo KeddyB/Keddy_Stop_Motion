@@ -16,22 +16,40 @@ export interface RenderProgressUpdate {
 
 export const videoExportService = {
   // Helper to map resolution setting to ffmpeg scale filter
-  getScaleFilter(resolution: ExportResolution): string {
+  // Ensures pixel dimensions are always strictly even numbers (divisible by 2) for H.264 compatibility
+  // and respects Portrait vs Landscape orientation so videos fill the full screen without black pillarbox bars
+  getScaleFilter(resolution: ExportResolution, orientation: string = 'landscape'): string {
+    const isLandscape = orientation === 'landscape';
     switch (resolution) {
-      case '1080p': return 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2';
-      case '720p': return 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2';
-      case '480p': return 'scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2';
-      default: return ''; // original
+      case '1080p':
+        return isLandscape
+          ? 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1'
+          : 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1';
+      case '720p':
+        return isLandscape
+          ? 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1'
+          : 'scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1';
+      case '480p':
+        return isLandscape
+          ? 'scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2,setsar=1'
+          : 'scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2,setsar=1';
+      case 'original':
+      default:
+        // Pure unpadded full-screen original photo dimensions (truncated to even numbers for H.264 compatibility)
+        return 'scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1';
     }
   },
 
-  // Helper to map quality to ffmpeg CRF (Constant Rate Factor) for x264
-  getQualityCrf(quality: string): string {
+  // Helper to map quality to ffmpeg CRF / bitrate
+  getQualityBitrate(quality: string): { bitrate: string; maxrate: string; bufsize: string } {
     switch (quality) {
-      case 'ultra': return '18';
-      case 'high': return '23';
-      case 'standard': return '28';
-      default: return '23';
+      case 'ultra':
+        return { bitrate: '35M', maxrate: '50M', bufsize: '70M' };
+      case 'high':
+        return { bitrate: '22M', maxrate: '35M', bufsize: '50M' };
+      case 'standard':
+      default:
+        return { bitrate: '14M', maxrate: '22M', bufsize: '30M' };
     }
   },
 
@@ -55,28 +73,47 @@ export const videoExportService = {
     const albumName = 'Keddy Stop Motion';
 
     for (let i = 0; i < projects.length; i++) {
-      const project = projects[i];
-      const fps = project.fps || 12;
-      
+      let project = projects[i];
+      let tempDir = '';
+
       try {
         onProgress({
           projectIndex: i + 1,
           totalProjects: projects.length,
-          projectTitle: project.title,
+          projectTitle: project.title || 'Untitled Project',
           percent: 5,
-          stageMessage: 'Preparing frame sequence...',
+          stageMessage: 'Preparing full-resolution frames...',
         });
 
         let frames: Frame[] = project.frames || [];
 
-        // Fallback: reload frames from disk if missing
-        if (frames.length === 0 && FileSystem.documentDirectory) {
+        // 1. If project in memory is missing frames, attempt to load full manifest from project.json
+        if ((!frames || frames.length === 0) && FileSystem.documentDirectory) {
+          const projectDir = storageService.getProjectDirectory(project.id);
+          const manifestPath = `${projectDir}project.json`;
+          try {
+            const manifestInfo = await FileSystem.getInfoAsync(manifestPath);
+            if (manifestInfo.exists) {
+              const rawJson = await FileSystem.readAsStringAsync(manifestPath);
+              const loadedProject: StopMotionProject = JSON.parse(rawJson);
+              if (loadedProject.frames && loadedProject.frames.length > 0) {
+                frames = loadedProject.frames;
+                project = loadedProject;
+              }
+            }
+          } catch (mErr) {
+            console.warn('Manifest reload notice:', mErr);
+          }
+        }
+
+        // 2. Secondary fallback: scan project frames folder on disk
+        if ((!frames || frames.length === 0) && FileSystem.documentDirectory) {
           const framesDir = storageService.getProjectFramesDirectory(project.id);
           const dirInfo = await FileSystem.getInfoAsync(framesDir);
           if (dirInfo.exists) {
             const files = await FileSystem.readDirectoryAsync(framesDir);
             const imageFiles = files
-              .filter((f) => f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg'))
+              .filter((f) => (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')) && !f.includes('_proxy'))
               .sort();
 
             if (imageFiles.length > 0) {
@@ -90,12 +127,11 @@ export const videoExportService = {
         }
 
         if (frames.length === 0) {
-          errors.push(`${project.title}: No frames captured to render.`);
+          errors.push(`${project.title || 'Project'}: No frames captured to render.`);
           continue;
         }
 
-        const albumName = 'Keddy Stop Motion';
-        let album = await MediaLibrary.getAlbumAsync(albumName);
+        const fps = project.fps || 12;
 
         // --- IMAGE SEQUENCE EXPORT ---
         if (exportConfig.format === 'jpeg_sequence' || exportConfig.format === 'png_sequence') {
@@ -136,7 +172,7 @@ export const videoExportService = {
         } 
         // --- VIDEO / GIF EXPORT (FFMPEG) ---
         else if (FileSystem.cacheDirectory) {
-          const tempDir = `${FileSystem.cacheDirectory}render_${project.id}_${Date.now()}/`;
+          tempDir = `${FileSystem.cacheDirectory}render_${project.id}_${Date.now()}/`;
           await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
 
           onProgress({
@@ -144,10 +180,10 @@ export const videoExportService = {
             totalProjects: projects.length,
             projectTitle: project.title,
             percent: 15,
-            stageMessage: 'Staging files for encoder...',
+            stageMessage: 'Staging full-resolution original frames...',
           });
 
-          // Filter and collect only existing physical frame files with multi-stage resolution
+          // Strictly resolve original full-resolution files first (never proxies)
           const validFrameUris: string[] = [];
           const framesDir = storageService.getProjectFramesDirectory(project.id);
 
@@ -155,7 +191,7 @@ export const videoExportService = {
             const frame = frames[f];
             let resolvedUri: string | null = null;
 
-            // 1. Check primary URI
+            // 1. Check primary original capture URI
             if (frame.uri) {
               try {
                 const info = await FileSystem.getInfoAsync(frame.uri);
@@ -163,15 +199,7 @@ export const videoExportService = {
               } catch {}
             }
 
-            // 2. Check proxy URI fallback
-            if (!resolvedUri && frame.proxyUri) {
-              try {
-                const pInfo = await FileSystem.getInfoAsync(frame.proxyUri);
-                if (pInfo.exists) resolvedUri = frame.proxyUri;
-              } catch {}
-            }
-
-            // 3. Check current project directory by filename
+            // 2. Check current project directory by original filename
             if (!resolvedUri && FileSystem.documentDirectory) {
               const filename = frame.uri ? frame.uri.split('/').pop() : `${frame.id}.jpg`;
               if (filename) {
@@ -183,52 +211,47 @@ export const videoExportService = {
               }
             }
 
+            // 3. Fallback to proxy URI ONLY if original was physically deleted
+            if (!resolvedUri && frame.proxyUri) {
+              try {
+                const pInfo = await FileSystem.getInfoAsync(frame.proxyUri);
+                if (pInfo.exists) resolvedUri = frame.proxyUri;
+              } catch {}
+            }
+
             if (resolvedUri) {
               validFrameUris.push(resolvedUri);
             }
           }
 
-          // Fallback: Scan project frames directory on device disk if list was empty
-          if (validFrameUris.length === 0 && FileSystem.documentDirectory) {
-            try {
-              const dirInfo = await FileSystem.getInfoAsync(framesDir);
-              if (dirInfo.exists) {
-                const diskFiles = await FileSystem.readDirectoryAsync(framesDir);
-                const fullResImages = diskFiles
-                  .filter((fn) => (fn.endsWith('.jpg') || fn.endsWith('.png') || fn.endsWith('.jpeg')) && !fn.includes('_proxy'))
-                  .sort();
-
-                for (const img of fullResImages) {
-                  validFrameUris.push(`${framesDir}${img}`);
-                }
-              }
-            } catch (scanErr) {
-              console.warn('Frames directory scan error:', scanErr);
-            }
-          }
-
           if (validFrameUris.length === 0) {
-            errors.push(`${project.title}: No captured frame images found on storage. Please shoot new frames in the studio first.`);
+            errors.push(`${project.title}: No captured frame images found on storage.`);
             continue;
           }
 
-          // Copy frames to temp directory sequentially (img_0001.jpg)
+          // Copy full-resolution frames sequentially to temp directory (img_0001.jpg, img_0002.jpg, ...)
           for (let f = 0; f < validFrameUris.length; f++) {
             const num = String(f + 1).padStart(4, '0');
             await FileSystem.copyAsync({
               from: validFrameUris[f],
-              to: `${tempDir}img_${num}.jpg`
+              to: `${tempDir}img_${num}.jpg`,
             });
           }
 
           const cleanTempDir = tempDir.replace(/^file:\/\//, '');
           const cleanInputPattern = `${cleanTempDir}img_%04d.jpg`;
 
-          const scaleFilter = this.getScaleFilter(exportConfig.resolution);
-          const crf = this.getQualityCrf(exportConfig.quality);
+          const scaleFilter = this.getScaleFilter(exportConfig.resolution, project.orientation);
+          const bitrateConfig = this.getQualityBitrate(exportConfig.quality);
           
-          const rawBaseName = exportConfig.customFileName?.trim() || project.title || 'animation';
-          const sanitizedBaseName = rawBaseName.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_').trim() || 'animation';
+          // Generate unique sanitized filename per project
+          let rawBaseName = project.title || 'animation';
+          if (projects.length === 1 && exportConfig.customFileName?.trim()) {
+            rawBaseName = exportConfig.customFileName.trim();
+          } else if (projects.length > 1 && exportConfig.customFileName?.trim()) {
+            rawBaseName = `${exportConfig.customFileName.trim()}_${i + 1}`;
+          }
+          const sanitizedBaseName = rawBaseName.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_').trim() || `animation_${project.id.slice(-4)}`;
 
           let outputFile = '';
           let command = '';
@@ -239,49 +262,60 @@ export const videoExportService = {
             let audioPart = '';
             if (project.audioTrack?.uri) {
                const cleanAudio = project.audioTrack.uri.replace(/^file:\/\//, '');
-               audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 128k `;
+               audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 192k `;
             }
-            const vfPart = scaleFilter ? `-vf "${scaleFilter}" ` : '';
-            command = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v libopenh264 -pix_fmt yuv420p "${cleanOutput}"`;
+            const vfPart = `-vf "${scaleFilter}" `;
+            
+            // High-Bitrate, Zero-Drop Frame Encoding:
+            // -c:v libopenh264 -pix_fmt yuv420p with broadcast-grade bitrate
+            // -vsync 0 -avoid_negative_ts make_zero -movflags +faststart: Preserves 100% of frames
+            command = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v libopenh264 -b:v ${bitrateConfig.bitrate} -maxrate ${bitrateConfig.maxrate} -bufsize ${bitrateConfig.bufsize} -pix_fmt yuv420p -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;
           } else if (exportConfig.format === 'gif_animation') {
             outputFile = `${tempDir}${sanitizedBaseName}.gif`;
             const cleanOutput = outputFile.replace(/^file:\/\//, '');
-            const gifFilter = scaleFilter
-              ? `${scaleFilter},split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer`
-              : 'split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer';
-            command = `-y -framerate ${fps} -i "${cleanInputPattern}" -vf "${gifFilter}" "${cleanOutput}"`;
+            // High-fidelity Floyd-Steinberg smooth palette generation (eliminates coarse Bayer matrix dots)
+            const filterComplex = `[0:v]${scaleFilter},split[s0][s1];[s0]palettegen=stats_mode=diff:max_colors=256[p];[s1][p]paletteuse=dither=floyd_steinberg:diff_mode=rectangle[v]`;
+            command = `-y -framerate ${fps} -i "${cleanInputPattern}" -filter_complex "${filterComplex}" -map "[v]" "${cleanOutput}"`;
           }
 
           onProgress({
             projectIndex: i + 1,
             totalProjects: projects.length,
             projectTitle: project.title,
-            percent: 25,
-            stageMessage: `Encoding ${exportConfig.format === 'mp4_video' ? 'MP4' : 'GIF'} (${fps} FPS)...`,
+            percent: 30,
+            stageMessage: `Encoding ${exportConfig.format === 'mp4_video' ? 'MP4' : 'GIF'} (${fps} FPS, ${validFrameUris.length} frames)...`,
           });
 
           let session = await FFmpegKit.execute(command);
           let returnCode = await session.getReturnCode();
 
-          // If libopenh264 is unavailable, fall back to universal mpeg4
+          // Fallback encoder for MP4 if libopenh264 is unavailable
           if (!ReturnCode.isSuccess(returnCode) && exportConfig.format === 'mp4_video') {
              const cleanOutput = outputFile.replace(/^file:\/\//, '');
              let audioPart = '';
              if (project.audioTrack?.uri) {
                 const cleanAudio = project.audioTrack.uri.replace(/^file:\/\//, '');
-                audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 128k `;
+                audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 192k `;
              }
-             const vfPart = scaleFilter ? `-vf "${scaleFilter}" ` : '';
-             const fallbackCmd = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v mpeg4 -qscale:v 2 -pix_fmt yuv420p "${cleanOutput}"`;
+             const vfPart = `-vf "${scaleFilter}" `;
+             const fallbackCmd = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v mpeg4 -qscale:v 1 -pix_fmt yuv420p -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;
              session = await FFmpegKit.execute(fallbackCmd);
              returnCode = await session.getReturnCode();
           }
 
           if (!ReturnCode.isSuccess(returnCode)) {
              const failLogs = await session.getAllLogsAsString();
-             console.warn('FFmpegKit logs:', failLogs);
+             console.warn('FFmpegKit logs for project', project.title, failLogs);
              throw new Error(`Encoding failed with return code ${returnCode?.getValue() || 'unknown'}`);
           }
+
+          onProgress({
+            projectIndex: i + 1,
+            totalProjects: projects.length,
+            projectTitle: project.title,
+            percent: 85,
+            stageMessage: 'Saving animation to photo library...',
+          });
 
           const assetUri = outputFile.startsWith('file://') ? outputFile : `file://${outputFile}`;
           let savedSuccessfully = false;
@@ -315,11 +349,8 @@ export const videoExportService = {
           }
 
           if (!savedSuccessfully && !asset) {
-            throw new Error(`Failed to save exported file to photo gallery.`);
+            throw new Error(`Failed to save exported animation to photo gallery.`);
           }
-
-          // Cleanup temp directory
-          await FileSystem.deleteAsync(tempDir, { idempotent: true });
         }
 
         onProgress({
@@ -333,7 +364,13 @@ export const videoExportService = {
         successCount++;
       } catch (err: any) {
         console.warn(`Render error for ${project.title}:`, err);
-        errors.push(`${project.title}: ${err.message || 'Render failed'}`);
+        errors.push(`${project.title || 'Project'}: ${err.message || 'Render failed'}`);
+      } finally {
+        if (tempDir) {
+          try {
+            await FileSystem.deleteAsync(tempDir, { idempotent: true });
+          } catch {}
+        }
       }
     }
 

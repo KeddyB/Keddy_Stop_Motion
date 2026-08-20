@@ -73,13 +73,8 @@ export const ProjectsProvider: React.FC<{ children: ReactNode }> = ({ children }
   const updateProject = useCallback(async (updatedProject: StopMotionProject): Promise<void> => {
     await storageService.saveProject(updatedProject);
     setProjects((prev) => {
-      const idx = prev.findIndex((p) => p.id === updatedProject.id);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = updatedProject;
-        return copy;
-      }
-      return [updatedProject, ...prev];
+      const filtered = prev.filter((p) => p.id !== updatedProject.id);
+      return [updatedProject, ...filtered];
     });
   }, []);
 

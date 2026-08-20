@@ -41,7 +41,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const insets = useAppInsets();
-  const { projects, deleteProject, duplicateProject } = useProjects();
+  const { projects, deleteProject, duplicateProject, updateProject } = useProjects();
 
   // Multi-Select State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -265,7 +265,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           renderItem={({ item }) => (
             <ProjectCard
               project={item}
-              onPress={() => onOpenStudio(item)}
+              onPress={() => {
+                updateProject({ ...item, lastModified: 'Just now' });
+                onOpenStudio(item);
+              }}
               onDelete={handleDeleteProject}
               onDuplicate={duplicateProject}
               isSelectionMode={isSelectionMode}

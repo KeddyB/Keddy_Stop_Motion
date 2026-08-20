@@ -78,16 +78,10 @@ export const storageService = {
         await FileSystem.writeAsStringAsync(manifestPath, JSON.stringify(project, null, 2));
       }
 
-      // 3. Update AsyncStorage index
+      // 3. Update AsyncStorage index: always place latest modified at the top of the stack
       const projects = await this.loadProjects();
-      const existingIdx = projects.findIndex((p) => p.id === project.id);
-      let updated: StopMotionProject[];
-      if (existingIdx >= 0) {
-        updated = [...projects];
-        updated[existingIdx] = project;
-      } else {
-        updated = [project, ...projects];
-      }
+      const filtered = projects.filter((p) => p.id !== project.id);
+      const updated = [project, ...filtered];
       await AsyncStorage.setItem(PROJECTS_INDEX_KEY, JSON.stringify(updated));
     } catch (e) {
       console.warn('Failed to save project:', e);

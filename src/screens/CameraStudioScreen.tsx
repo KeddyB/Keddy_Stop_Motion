@@ -14,6 +14,7 @@ import {
   Dimensions,
   PanResponder,
   ScrollView,
+  TextInput,
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -49,6 +50,7 @@ import { StopMotionProject, Frame, AudioTrack } from '../types/project';
 import { DoodleCanvas } from '../components/DoodleCanvas';
 import { StudioSettingsModal, OnionSkinConfig } from '../components/StudioSettingsModal';
 import { SmearModal } from '../components/SmearModal';
+import { FullScreenPlaybackModal } from '../components/FullScreenPlaybackModal';
 import { ImportLoadingModal } from '../components/ImportLoadingModal';
 import { VoiceoverRecordModal } from '../components/VoiceoverRecordModal';
 import { ChromaKeyModal, ChromaKeyConfig } from '../components/ChromaKeyModal';
@@ -138,6 +140,10 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   const [showSmearModal, setShowSmearModal] = useState(false);
   const [showVoiceoverModal, setShowVoiceoverModal] = useState(false);
   const [showChromaKeyModal, setShowChromaKeyModal] = useState(false);
+  const [showFullScreenPlayback, setShowFullScreenPlayback] = useState(false);
+
+  // Bluetooth Remote Shutter Input Ref
+  const remoteShutterInputRef = useRef<TextInput>(null);
 
   // In-Studio Animation Export State
   const [showExportModal, setShowExportModal] = useState(false);
@@ -193,31 +199,6 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       ExpoImage.prefetch(uris);
     }
   }, [frames]);
-
-  // High-performance 60/120 FPS UI-Thread Animated Scroll Handler
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      const idx = Math.max(0, Math.min(frames.length - 1, Math.round(event.contentOffset.x / 70)));
-      if (scrubFrameIndex.value !== idx) {
-        scrubFrameIndex.value = idx;
-      }
-    },
-    onMomentumEnd: (event) => {
-      const idx = Math.max(0, Math.min(frames.length - 1, Math.round(event.contentOffset.x / 70)));
-      scrubFrameIndex.value = idx;
-    },
-  });
-
-  // Reactive bridge from UI-thread scrubbing to JS state for buttons/actions
-  useAnimatedReaction(
-    () => scrubFrameIndex.value,
-    (nextIdx, prevIdx) => {
-      if (nextIdx !== prevIdx) {
-        runOnJS(setActiveFrameIndex)(nextIdx);
-      }
-    },
-    [frames.length]
-  );
 
   // Initial mount: scroll to last frame under fixed center square
   useEffect(() => {
@@ -295,6 +276,10 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   // Universal Hardware & Gesture Back Handler
   useEffect(() => {
     const onHardwareBack = () => {
+      if (showFullScreenPlayback) {
+        setShowFullScreenPlayback(false);
+        return true;
+      }
       if (showStudioSettings) {
         setShowStudioSettings(false);
         return true;
@@ -322,7 +307,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
 
     const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
     return () => sub.remove();
-  }, [showStudioSettings, showSmearModal, isDoodleMode, isSoloView, isPlaying, onClose]);
+  }, [showFullScreenPlayback, showStudioSettings, showSmearModal, isDoodleMode, isSoloView, isPlaying, onClose]);
 
   // 2. Playback sequence timer & Audio Sync (with Loop / Bounce / Once support)
   useEffect(() => {
@@ -476,8 +461,21 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       const proxyPath = `${framesDir}${frameId}_proxy.jpg`;
 
       // 1. Calculate Crop Rectangle to match targetAspectRatio exactly with Viewfinder
-      const photoW = photo.width || 1920;
-      const photoH = photo.height || 1080;
+      let photoW = photo.width || 1920;
+      let photoH = photo.height || 1080;
+      const isProjectLandscape = targetAspectRatio >= 1.0;
+      const isPhotoLandscape = photoW >= photoH;
+
+      const fullManip = ImageManipulator.manipulate(photo.uri);
+
+      // If photo was captured in opposite orientation due to phone gyro angle, normalize rotation to project orientation
+      if (isProjectLandscape !== isPhotoLandscape) {
+        fullManip.rotate(90);
+        const temp = photoW;
+        photoW = photoH;
+        photoH = temp;
+      }
+
       const photoRatio = photoW / photoH;
       const targetRatio = targetAspectRatio;
 
@@ -503,7 +501,6 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       }
 
       // Crop high-res photo to exact viewfinder framing
-      const fullManip = ImageManipulator.manipulate(photo.uri);
       if (Math.abs(photoRatio - targetRatio) > 0.01) {
         fullManip.crop({
           originX: cropOriginX,
@@ -1025,6 +1022,15 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     updated.splice(insertAt, 0, newFrame);
     setFrames(updated);
     setActiveFrameIndex(insertAt);
+    scrubFrameIndex.value = insertAt;
+    setIsSoloView(false);
+
+    setTimeout(() => {
+      filmstripRef.current?.scrollToOffset({
+        offset: insertAt * 70,
+        animated: true,
+      });
+    }, 50);
 
     setUndoStack((prev) => [
       ...prev,
@@ -1444,6 +1450,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                 enableTorch={torch}
                 zoom={zoom}
                 autofocus={isAeAfLocked ? 'off' : 'on'}
+                responsiveOrientationWhenOrientationLocked={true}
               />
             </View>
 
@@ -1536,6 +1543,20 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                   </>
                 )}
               </View>
+
+              {/* Fullscreen Viewfinder Mode Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.viewfinderFullscreenBtn,
+                  frames.length === 0 && { opacity: 0.35 },
+                  { transform: [{ scale: pressed ? 0.90 : 1 }] },
+                ]}
+                disabled={frames.length === 0}
+                onPress={() => setShowFullScreenPlayback(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="expand" size={15} color="#FFFFFF" />
+              </Pressable>
             </View>
 
             {/* Aspect Ratio Guide / Letterbox Overlay with Multi-Grid Support */}
@@ -1653,31 +1674,18 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               />
             ))}
 
-            {/* Solo Frame Preview Overlay (when tapped on a frame) */}
-            {isSoloView && activeGhostFrame && !isPlaying && (
+            {/* Solo Frame Preview & Real-Time Scrubbing Layer (60 FPS Native UI-Thread Scrubbing) */}
+            {isSoloView && !isPlaying && frames.length > 0 && (
               <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-                <ExpoImage
-                  source={{ uri: activeGhostFrame.proxyUri || activeGhostFrame.uri }}
-                  style={styles.playbackImage}
-                  contentFit={settings.aspectFitMode === 'cover' ? 'cover' : 'contain'}
-                  transition={0}
-                />
-
-                {activeGhostFrame.doodles && (
-                  <Svg style={StyleSheet.absoluteFill}>
-                    {activeGhostFrame.doodles.map((stroke) => (
-                      <Path
-                        key={stroke.id}
-                        d={pointsToSvgPath(stroke.points)}
-                        stroke={stroke.color}
-                        strokeWidth={stroke.strokeWidth}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    ))}
-                  </Svg>
-                )}
+                {frames.map((frame, index) => (
+                  <HardwareFrameLayer
+                    key={`solo_${frame.id}`}
+                    frame={frame}
+                    index={index}
+                    activeFrameIndex={scrubFrameIndex}
+                    aspectFitMode={settings.aspectFitMode}
+                  />
+                ))}
 
                 {/* Solo View HUD Bar */}
                 <View style={styles.soloViewBadgeRow} pointerEvents="box-none">
@@ -2374,41 +2382,37 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
             <View style={styles.fixedCenterSquareBorder} />
           </View>
 
-          <Animated.FlatList
+          <FlatList
             ref={filmstripRef}
             data={frames}
             horizontal
             keyExtractor={(item) => item.id}
             showsHorizontalScrollIndicator={false}
-            decelerationRate="normal"
+            snapToInterval={70}
+            decelerationRate={0.985}
             disableIntervalMomentum={false}
             contentContainerStyle={[
               styles.filmstripContent,
               { paddingHorizontal: Math.max(0, (windowWidth - 70) / 2) },
             ]}
-            getItemLayout={(_, index) => ({
-              length: 70,
-              offset: 70 * index,
-              index,
-            })}
-            onScroll={scrollHandler}
-            onMomentumScrollEnd={(e) => {
-              const offsetX = e.nativeEvent.contentOffset.x;
-              const targetIdx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
-              filmstripRef.current?.scrollToOffset({
-                offset: targetIdx * 70,
-                animated: true,
-              });
-            }}
-            onScrollEndDrag={(e) => {
-              if (Math.abs(e.nativeEvent.velocity?.x || 0) < 0.1) {
-                const offsetX = e.nativeEvent.contentOffset.x;
-                const targetIdx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
-                filmstripRef.current?.scrollToOffset({
-                  offset: targetIdx * 70,
-                  animated: true,
-                });
+            onScroll={(event) => {
+              const offsetX = event.nativeEvent.contentOffset.x;
+              const idx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
+              if (scrubFrameIndex.value !== idx) {
+                scrubFrameIndex.value = idx;
               }
+            }}
+            onMomentumScrollEnd={(event) => {
+              const offsetX = event.nativeEvent.contentOffset.x;
+              const idx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
+              scrubFrameIndex.value = idx;
+              setActiveFrameIndex(idx);
+            }}
+            onScrollEndDrag={(event) => {
+              const offsetX = event.nativeEvent.contentOffset.x;
+              const idx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
+              scrubFrameIndex.value = idx;
+              setActiveFrameIndex(idx);
             }}
             scrollEventThrottle={16}
             renderItem={({ item, index }) => {
@@ -2542,19 +2546,64 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       />
 
       {/* Smear Frame Generator Modal */}
-      {showSmearModal && smearFrameA && smearFrameB && (
-        <SmearModal
-          visible={showSmearModal}
-          onClose={() => setShowSmearModal(false)}
-          frameA={smearFrameA}
-          frameB={smearFrameB}
-          projectId={project.id}
-          onInsertSmearFrame={handleInsertSmearFrame}
-          insertIndex={
-            activeFrameIndex !== null
-              ? activeFrameIndex + 1
-              : frames.length - 1
-          }
+      {showSmearModal && frames.length >= 2 && (() => {
+        const activeIdx = activeFrameIndex !== null && activeFrameIndex >= 0 ? activeFrameIndex : frames.length - 1;
+        const smearFrameA = frames[activeIdx] || frames[frames.length - 2] || frames[0];
+        const smearFrameB = frames[activeIdx + 1] || frames[activeIdx - 1] || frames[1];
+        return (
+          <SmearModal
+            visible={showSmearModal}
+            onClose={() => setShowSmearModal(false)}
+            frameA={smearFrameA}
+            frameB={smearFrameB}
+            projectId={project.id}
+            onInsertSmearFrame={handleInsertSmearFrame}
+            insertIndex={
+              activeFrameIndex !== null
+                ? activeFrameIndex + 1
+                : frames.length - 1
+            }
+          />
+        );
+      })()}
+
+      {/* Full Screen High-Resolution Studio Playback */}
+      {showFullScreenPlayback && (
+        <FullScreenPlaybackModal
+          visible={showFullScreenPlayback}
+          onClose={() => setShowFullScreenPlayback(false)}
+          frames={frames}
+          initialFrameIndex={activeFrameIndex !== null ? activeFrameIndex : 0}
+          initialFps={fps}
+          onFpsChange={handleChangeFps}
+          aspectRatio={targetAspectRatio}
+        />
+      )}
+
+      {/* Hidden Bluetooth Remote Shutter Receiver (Captures Volume/Enter/Space clicker events) */}
+      {settings.remoteShutterEnabled && (
+        <TextInput
+          ref={remoteShutterInputRef}
+          style={styles.hiddenRemoteShutterInput}
+          autoFocus
+          showSoftInputOnFocus={false}
+          blurOnSubmit={false}
+          value=""
+          onChangeText={() => {
+            if (!isCapturing && !isPlaying) {
+              handleCapture();
+            }
+          }}
+          onKeyPress={() => {
+            if (!isCapturing && !isPlaying) {
+              handleCapture();
+            }
+          }}
+          onSubmitEditing={() => {
+            if (!isCapturing && !isPlaying) {
+              handleCapture();
+            }
+          }}
         />
       )}
 
@@ -3091,7 +3140,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 12,
     left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     zIndex: 80,
+  },
+  viewfinderFullscreenBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'rgba(11, 13, 19, 0.82)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.30)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 3,
   },
   viewfinderBadgePill: {
     flexDirection: 'row',
@@ -3347,18 +3415,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: '50%',
     top: '50%',
-    marginLeft: -36,
-    marginTop: -36,
-    width: 72,
-    height: 72,
+    marginLeft: -32,
+    marginTop: -32,
+    width: 64,
+    height: 64,
     zIndex: 20,
     justifyContent: 'center',
     alignItems: 'center',
     pointerEvents: 'none',
   },
   fixedCenterSquareBorder: {
-    width: 72,
-    height: 72,
+    width: 64,
+    height: 64,
     borderRadius: 14,
     borderWidth: 2.5,
     borderColor: '#FFFFFF',
@@ -3478,6 +3546,14 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  hiddenRemoteShutterInput: {
+    position: 'absolute',
+    top: -100,
+    left: -100,
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
 });
 // Convert points to SVG Path

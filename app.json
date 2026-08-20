@@ -8,11 +8,13 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.keddyb.keddyStopMotion",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Keddy Stop Motion uses your camera to capture frames for your animations.",
         "NSPhotoLibraryUsageDescription": "Keddy Stop Motion accesses your photo library to save and import frames.",
-        "NSPhotoLibraryAddUsageDescription": "Keddy Stop Motion saves your finished movies and animations to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "Keddy Stop Motion saves your finished movies and animations to your photo library.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

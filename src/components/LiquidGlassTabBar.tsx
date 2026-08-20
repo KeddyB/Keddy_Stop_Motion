@@ -3,15 +3,20 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Pressable,
   Animated,
   Platform,
   Easing,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import {
+  LiquidGlassContainerView,
+  LiquidGlassView,
+  isLiquidGlassSupported,
+} from '@callstack/liquid-glass';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
+import { useAppSettings } from '../context/SettingsContext';
 import { useAppInsets } from '../utils/useAppInsets';
 
 export type TabKey = 'home' | 'settings';
@@ -22,12 +27,16 @@ interface LiquidGlassTabBarProps {
   onPressNewAnimation?: () => void;
 }
 
-const BAR_WIDTH = 266;
-const BAR_HEIGHT = 60;
-const PADDING = 6;
-const TAB_WIDTH = (BAR_WIDTH - PADDING * 2) / 2;
-const FAB_SIZE = 60;
+// Pixel-perfect symmetrical geometry constants
+const BORDER_WIDTH = 1.5;
+const PADDING = 5;
+const PILL_HEIGHT = 48;
+const PILL_WIDTH = 126;
+const BAR_WIDTH = (PILL_WIDTH * 2) + (PADDING * 2) + (BORDER_WIDTH * 2); // 265px
+const BAR_HEIGHT = PILL_HEIGHT + (PADDING * 2) + (BORDER_WIDTH * 2); // 61px
+const FAB_SIZE = 58;
 const FAB_RADIUS = FAB_SIZE / 2;
+const FAB_SPACING = 12;
 
 export const LiquidGlassTabBar: React.FC<LiquidGlassTabBarProps> = ({
   activeTab,
@@ -35,9 +44,13 @@ export const LiquidGlassTabBar: React.FC<LiquidGlassTabBarProps> = ({
   onPressNewAnimation,
 }) => {
   const { theme, isDark } = useTheme();
+  const { settings } = useAppSettings();
   const insets = useAppInsets();
 
-  const translateX = useRef(new Animated.Value(activeTab === 'home' ? 0 : TAB_WIDTH)).current;
+  const isLiquidEnabled = settings?.liquidGlassEnabled ?? true;
+  const transparency = settings?.liquidGlassTransparency ?? 0.75;
+
+  const translateX = useRef(new Animated.Value(activeTab === 'home' ? 0 : PILL_WIDTH)).current;
 
   // Ultra-fast immediate animation
   const animateTo = (targetX: number) => {
@@ -50,13 +63,13 @@ export const LiquidGlassTabBar: React.FC<LiquidGlassTabBarProps> = ({
   };
 
   useEffect(() => {
-    const targetX = activeTab === 'home' ? 0 : TAB_WIDTH;
+    const targetX = activeTab === 'home' ? 0 : PILL_WIDTH;
     animateTo(targetX);
   }, [activeTab]);
 
   const handlePress = (tabKey: TabKey) => {
     if (tabKey === activeTab) return;
-    const targetX = tabKey === 'home' ? 0 : TAB_WIDTH;
+    const targetX = tabKey === 'home' ? 0 : PILL_WIDTH;
     animateTo(targetX); // Start moving instantly before parent render
     onSelectTab(tabKey);
   };
@@ -83,6 +96,169 @@ export const LiquidGlassTabBar: React.FC<LiquidGlassTabBarProps> = ({
 
   const bottomOffset = Math.max(insets.bottom, 22) + 10;
 
+  // Background alpha calculation based on transparency settings
+  const alphaVal = isLiquidEnabled
+    ? Math.max(0.2, (1 - transparency * 0.7)).toFixed(2)
+    : '0.98';
+
+  const capsuleBg = isDark
+    ? `rgba(24, 31, 48, ${alphaVal})`
+    : `rgba(255, 255, 255, ${alphaVal})`;
+
+  const fabBg = isDark
+    ? `rgba(99, 102, 241, 0.25)`
+    : `rgba(79, 70, 229, 0.12)`;
+
+  const blurIntensity = Math.round((Platform.OS === 'ios' ? 70 : 90) * (isLiquidEnabled ? transparency : 1.0));
+
+  // Render row content: Tab Switcher and New Project FAB are centered as one unified block
+  const renderTabBarRow = () => (
+    <View style={styles.tabBarRow}>
+      {/* Main Tab Capsule */}
+      <View
+        style={[
+          styles.glassWrapper,
+          {
+            shadowColor: isDark ? '#000000' : '#4F46E5',
+            backgroundColor: capsuleBg,
+            borderColor: isDark
+              ? 'rgba(255, 255, 255, 0.22)'
+              : 'rgba(203, 213, 225, 0.9)',
+          },
+        ]}
+      >
+        {isLiquidEnabled && isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[StyleSheet.absoluteFill, { borderRadius: BAR_HEIGHT / 2 }]}
+            effect="clear"
+            interactive
+          />
+        ) : (
+          <BlurView
+            pointerEvents="none"
+            intensity={blurIntensity}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+
+        {/* Specular Top Rim */}
+        {isLiquidEnabled && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.specularBorder,
+              {
+                borderColor: isDark
+                  ? 'rgba(129, 140, 248, 0.35)'
+                  : 'rgba(255, 255, 255, 0.95)',
+              },
+            ]}
+          />
+        )}
+
+        {/* Snappy Gliding Active Indicator Pill */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.slidingPill,
+            {
+              backgroundColor: isDark
+                ? 'rgba(99, 102, 241, 0.40)'
+                : 'rgba(79, 70, 229, 0.18)',
+              borderColor: isDark ? '#818CF8' : '#6366F1',
+              transform: [{ translateX }],
+            },
+          ]}
+        />
+
+        {/* Tab Buttons Row */}
+        <View style={styles.tabRow}>
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <Pressable
+                key={tab.key}
+                unstable_pressDelay={0}
+                pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={() => handlePress(tab.key)}
+                style={({ pressed }) => [
+                  styles.tabButton,
+                  { opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons
+                  name={isActive ? tab.iconActive : tab.iconInactive}
+                  size={18}
+                  color={isActive ? (isDark ? '#818CF8' : '#4F46E5') : theme.textMuted}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.tabLabel,
+                    {
+                      color: isActive
+                        ? isDark
+                          ? '#F8FAFC'
+                          : '#4F46E5'
+                        : theme.textMuted,
+                      fontWeight: isActive ? '800' : '600',
+                    },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Circular Floating Plus Button to Start New Animation */}
+      {onPressNewAnimation && (
+        <Pressable
+          unstable_pressDelay={0}
+          pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={({ pressed }) => [
+            styles.fabButton,
+            {
+              marginLeft: FAB_SPACING,
+              shadowColor: isDark ? '#000000' : '#4F46E5',
+              backgroundColor: fabBg,
+              borderColor: isDark ? '#818CF8' : '#6366F1',
+              opacity: pressed ? 0.8 : 1,
+              transform: [{ scale: pressed ? 0.92 : 1 }],
+            },
+          ]}
+          onPress={onPressNewAnimation}
+        >
+          {isLiquidEnabled && isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={StyleSheet.absoluteFill}
+              effect="clear"
+              interactive
+            />
+          ) : (
+            <BlurView
+              intensity={blurIntensity}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+
+          <Ionicons
+            name="add"
+            size={26}
+            color={isDark ? '#FFFFFF' : '#4F46E5'}
+          />
+        </Pressable>
+      )}
+    </View>
+  );
+
   return (
     <View
       pointerEvents="box-none"
@@ -93,151 +269,13 @@ export const LiquidGlassTabBar: React.FC<LiquidGlassTabBarProps> = ({
         },
       ]}
     >
-      <View style={styles.tabBarRow}>
-        {/* Main Tab Capsule */}
-        <View
-          style={[
-            styles.glassWrapper,
-            {
-              shadowColor: isDark ? '#000000' : '#4F46E5',
-              backgroundColor: isDark
-                ? '#181F30'
-                : 'rgba(255, 255, 255, 0.95)',
-              borderColor: isDark
-                ? 'rgba(255, 255, 255, 0.22)'
-                : 'rgba(203, 213, 225, 0.9)',
-            },
-          ]}
-        >
-          <BlurView
-            pointerEvents="none"
-            intensity={Platform.OS === 'ios' ? 70 : 90}
-            tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFill}
-          />
-
-          {/* Snappy Gliding Active Indicator Pill */}
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.slidingPill,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(99, 102, 241, 0.40)'
-                  : 'rgba(79, 70, 229, 0.18)',
-                borderColor: isDark
-                  ? '#818CF8'
-                  : '#6366F1',
-                transform: [{ translateX }],
-              },
-            ]}
-          />
-
-          {/* Tab Buttons Row */}
-          <View style={styles.tabRow}>
-            {tabs.map((tab) => {
-              const isActive = activeTab === tab.key;
-              return (
-                <Pressable
-                  key={tab.key}
-                  unstable_pressDelay={0}
-                  pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  onPress={() => handlePress(tab.key)}
-                  style={({ pressed }) => [
-                    styles.tabButton,
-                    { opacity: pressed ? 0.75 : 1 },
-                  ]}
-                >
-                  <Ionicons
-                    name={isActive ? tab.iconActive : tab.iconInactive}
-                    size={18}
-                    color={isActive ? (isDark ? '#818CF8' : '#4F46E5') : theme.textMuted}
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.tabLabel,
-                      {
-                        color: isActive
-                          ? isDark
-                            ? '#F8FAFC'
-                            : '#4F46E5'
-                          : theme.textMuted,
-                        fontWeight: isActive ? '800' : '600',
-                      },
-                    ]}
-                  >
-                    {tab.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Circular Floating Plus Button to Start New Animation */}
-        {onPressNewAnimation && (
-          <Pressable
-            unstable_pressDelay={0}
-            pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            style={({ pressed }) => [
-              styles.fabButton,
-              {
-                marginLeft: 12,
-                shadowColor: isDark ? '#000000' : '#4F46E5',
-                backgroundColor: isDark
-                  ? 'rgba(20, 24, 36, 0.78)'
-                  : 'rgba(255, 255, 255, 0.84)',
-                borderColor: isDark
-                  ? 'rgba(255, 255, 255, 0.20)'
-                  : 'rgba(255, 255, 255, 0.85)',
-                opacity: pressed ? 0.8 : 1,
-                transform: [{ scale: pressed ? 0.92 : 1 }],
-              },
-            ]}
-            onPress={onPressNewAnimation}
-          >
-            <BlurView
-              intensity={Platform.OS === 'ios' ? 70 : 90}
-              tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFill}
-            />
-
-            {/* Specular highlight border overlay */}
-            <View
-              style={[
-                styles.fabSpecularBorder,
-                {
-                  borderColor: isDark
-                    ? 'rgba(129, 140, 248, 0.40)'
-                    : 'rgba(255, 255, 255, 0.9)',
-                },
-              ]}
-            />
-
-            {/* Internal glass color wash tint */}
-            <View
-              style={[
-                styles.fabInnerGlow,
-                {
-                  backgroundColor: isDark
-                    ? 'rgba(99, 102, 241, 0.24)'
-                    : 'rgba(79, 70, 229, 0.12)',
-                },
-              ]}
-            />
-
-            <Ionicons
-              name="add"
-              size={26}
-              color={isDark ? '#818CF8' : '#4F46E5'}
-            />
-          </Pressable>
-        )}
-      </View>
+      {isLiquidEnabled && isLiquidGlassSupported ? (
+        <LiquidGlassContainerView spacing={FAB_SPACING} style={styles.tabBarRow}>
+          {renderTabBarRow()}
+        </LiquidGlassContainerView>
+      ) : (
+        renderTabBarRow()
+      )}
     </View>
   );
 };
@@ -260,12 +298,8 @@ const styles = StyleSheet.create({
     height: BAR_HEIGHT,
     borderRadius: BAR_HEIGHT / 2,
     flexShrink: 0,
-    borderWidth: 1.5,
+    borderWidth: BORDER_WIDTH,
     overflow: 'hidden',
-    paddingTop: PADDING,
-    paddingBottom: PADDING,
-    paddingLeft: PADDING,
-    paddingRight: PADDING,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 18,
@@ -273,11 +307,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   specularBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFill,
     borderRadius: BAR_HEIGHT / 2,
     borderWidth: 1,
     opacity: 0.6,
@@ -285,29 +315,28 @@ const styles = StyleSheet.create({
   slidingPill: {
     position: 'absolute',
     top: PADDING,
-    bottom: PADDING,
     left: PADDING,
-    paddingRight: PADDING,
-    width: TAB_WIDTH,
-    borderRadius: (BAR_HEIGHT - PADDING * 2) / 2,
+    width: PILL_WIDTH,
+    height: PILL_HEIGHT,
+    borderRadius: PILL_HEIGHT / 2,
     borderWidth: 1.5,
     zIndex: 1,
   },
   tabRow: {
     position: 'absolute',
     top: PADDING,
-    bottom: PADDING,
     left: PADDING,
     right: PADDING,
+    bottom: PADDING,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     zIndex: 2,
   },
   tabButton: {
-    flex: 1,
-    height: '100%',
-    borderRadius: (BAR_HEIGHT - PADDING * 2) / 2,
+    width: PILL_WIDTH,
+    height: PILL_HEIGHT,
+    borderRadius: PILL_HEIGHT / 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -333,23 +362,5 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 12,
     position: 'relative',
-  },
-  fabSpecularBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: FAB_RADIUS,
-    borderWidth: 1,
-    opacity: 0.7,
-  },
-  fabInnerGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: FAB_RADIUS,
   },
 });

@@ -136,15 +136,39 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
               {themeOptions.map((opt) => {
                 const isSelected = activeSchemeMode === opt.mode;
                 return (
-                  <GlassButton
+                  <Pressable
                     key={opt.mode}
-                    size="md"
-                    color={isSelected ? 'primary' : 'default'}
-                    icon={opt.icon}
-                    label={opt.label}
+                    style={({ pressed }) => [
+                      styles.themeOptionBtn,
+                      {
+                        backgroundColor: isSelected
+                          ? isDark
+                            ? 'rgba(99, 102, 241, 0.28)'
+                            : 'rgba(79, 70, 229, 0.12)'
+                          : theme.surfaceSubtle,
+                        borderColor: isSelected ? theme.primaryLight : theme.border,
+                        transform: [{ scale: pressed ? 0.94 : 1 }],
+                      },
+                    ]}
                     onPress={() => setScheme(opt.mode)}
-                    style={{ flex: 1 }}
-                  />
+                  >
+                    <Ionicons
+                      name={opt.icon}
+                      size={20}
+                      color={isSelected ? theme.primaryLight : theme.textMuted}
+                    />
+                    <Text
+                      style={[
+                        styles.themeOptionText,
+                        {
+                          color: isSelected ? (isDark ? '#FFFFFF' : theme.primary) : theme.text,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </Pressable>
                 );
               })}
             </View>
@@ -695,7 +719,148 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
           </View>
         </View>
 
-        {/* 7. Remote Shutter Settings */}
+        {/* 7. Liquid Glass UI & Visual Aesthetics */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>
+            LIQUID GLASS & AESTHETICS
+          </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                shadowColor: theme.cardShadow,
+              },
+            ]}
+          >
+            {/* Toggle Liquid Glass */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchInfo}>
+                <View style={styles.optionTitleRow}>
+                  <Ionicons
+                    name="sparkles-outline"
+                    size={20}
+                    color={
+                      settings.liquidGlassEnabled
+                        ? theme.primaryLight
+                        : theme.textMuted
+                    }
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={[styles.optionTitle, { color: theme.text }]}>
+                    Liquid Glass Effects
+                  </Text>
+                </View>
+                <Text style={[styles.optionSubtitle, { color: theme.textMuted }]}>
+                  Enables Apple Liquid Glass dynamic background refraction, fluid merging capsules, and frosted surfaces.
+                </Text>
+              </View>
+              <Switch
+                value={settings.liquidGlassEnabled}
+                onValueChange={(val) => updateSetting('liquidGlassEnabled', val)}
+                trackColor={{ false: theme.surfaceSubtle, true: theme.primary }}
+                thumbColor={settings.liquidGlassEnabled ? '#FFFFFF' : theme.textSubtle}
+              />
+            </View>
+
+            {settings.liquidGlassEnabled && (
+              <>
+                <View style={[styles.divider, { backgroundColor: theme.border }]} />
+                <View style={{ padding: 14 }}>
+                  <Text style={[styles.optionTitle, { color: theme.text, marginBottom: 4 }]}>
+                    Glass Transparency & Frosting
+                  </Text>
+                  <Text style={[styles.optionSubtitle, { color: theme.textMuted, marginBottom: 12 }]}>
+                    Control the optical translucency of floating controls, studio HUDs, and tab bars.
+                  </Text>
+
+                  {/* Preset Buttons */}
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                    {[
+                      { label: 'Subtle', val: 0.35 },
+                      { label: 'Balanced', val: 0.60 },
+                      { label: 'Frosted', val: 0.75 },
+                      { label: 'Crystal', val: 0.90 },
+                    ].map((preset) => {
+                      const isSelected = Math.abs(settings.liquidGlassTransparency - preset.val) < 0.05;
+                      return (
+                        <Pressable
+                          key={preset.label}
+                          style={({ pressed }) => [
+                            {
+                              flex: 1,
+                              paddingVertical: 9,
+                              paddingHorizontal: 4,
+                              borderRadius: 12,
+                              borderWidth: 1.5,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
+                              borderColor: isSelected ? theme.primaryLight : theme.border,
+                              transform: [{ scale: pressed ? 0.94 : 1 }],
+                            },
+                          ]}
+                          onPress={() => updateSetting('liquidGlassTransparency', preset.val)}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '700',
+                              color: isSelected ? '#FFFFFF' : theme.text,
+                            }}
+                          >
+                            {preset.label}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 9,
+                              fontWeight: '600',
+                              color: isSelected ? 'rgba(255,255,255,0.8)' : theme.textMuted,
+                              marginTop: 1,
+                            }}
+                          >
+                            {Math.round(preset.val * 100)}%
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Live Glass Preview Surface */}
+                  <GlassSurface
+                    variant="elevated"
+                    borderRadius={14}
+                    contentStyle={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                  >
+                    <View
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: '#6366F1',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons name="water" size={20} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>
+                        Live Glass Preview
+                      </Text>
+                      <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 1 }}>
+                        Transparency set to {Math.round(settings.liquidGlassTransparency * 100)}%
+                      </Text>
+                    </View>
+                  </GlassSurface>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+
+        {/* 8. Remote Shutter Settings */}
         <View style={styles.section}>
           <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>
             REMOTE HARDWARE SHUTTER
@@ -795,14 +960,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
 
         {/* 8. Reset to Factory Defaults */}
         <View style={styles.resetContainer}>
-          <GlassButton
-            size="lg"
-            color="danger"
-            icon="refresh-outline"
-            label="Reset Settings to Original Defaults"
+          <Pressable
+            style={({ pressed }) => [
+              styles.resetBtn,
+              {
+                backgroundColor: isDark
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : 'rgba(239, 68, 68, 0.08)',
+                borderColor: isDark ? 'rgba(239, 68, 68, 0.45)' : '#FCA5A5',
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              },
+            ]}
             onPress={handleReset}
-            style={{ width: '100%' }}
-          />
+          >
+            <Ionicons
+              name="refresh-outline"
+              size={18}
+              color={isDark ? '#FCA5A5' : '#DC2626'}
+              style={{ marginRight: 8 }}
+            />
+            <Text
+              style={[
+                styles.resetBtnText,
+                { color: isDark ? '#FCA5A5' : '#DC2626' },
+              ]}
+            >
+              Reset Settings to Original Defaults
+            </Text>
+          </Pressable>
         </View>
 
         {/* Footer */}

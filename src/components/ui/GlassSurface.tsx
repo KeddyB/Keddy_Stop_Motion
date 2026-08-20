@@ -7,7 +7,9 @@ import {
   Platform,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTheme } from '../../theme/ThemeContext';
+import { useAppSettings } from '../../context/SettingsContext';
 
 export type GlassVariant = 'default' | 'elevated' | 'subtle';
 
@@ -21,6 +23,8 @@ interface GlassSurfaceProps {
   specular?: boolean;
   /** Blur intensity override (defaults per variant) */
   blurIntensity?: number;
+  /** Force liquid glass effect style ('clear' | 'regular' | 'none') */
+  effect?: 'clear' | 'regular' | 'none';
   /** Additional styles for the outer container */
   style?: StyleProp<ViewStyle>;
   /** Additional styles for the inner content wrapper */
@@ -30,14 +34,14 @@ interface GlassSurfaceProps {
 const VARIANT_CONFIG = {
   default: {
     dark: {
-      background: '#141A29',
+      backgroundBase: 'rgba(20, 26, 41, ALPHA)',
       border: 'rgba(255, 255, 255, 0.18)',
       specular: 'rgba(129, 140, 248, 0.30)',
       blur: Platform.OS === 'ios' ? 70 : 90,
       shadow: '#000000',
     },
     light: {
-      background: '#FFFFFF',
+      backgroundBase: 'rgba(255, 255, 255, ALPHA)',
       border: 'rgba(226, 232, 240, 0.95)',
       specular: 'rgba(255, 255, 255, 0.95)',
       blur: Platform.OS === 'ios' ? 70 : 90,
@@ -46,14 +50,14 @@ const VARIANT_CONFIG = {
   },
   elevated: {
     dark: {
-      background: '#1C2338',
+      backgroundBase: 'rgba(28, 35, 56, ALPHA)',
       border: 'rgba(255, 255, 255, 0.24)',
       specular: 'rgba(129, 140, 248, 0.45)',
       blur: Platform.OS === 'ios' ? 80 : 100,
       shadow: '#000000',
     },
     light: {
-      background: '#FFFFFF',
+      backgroundBase: 'rgba(255, 255, 255, ALPHA)',
       border: 'rgba(203, 213, 225, 0.95)',
       specular: 'rgba(255, 255, 255, 0.98)',
       blur: Platform.OS === 'ios' ? 80 : 100,
@@ -62,14 +66,14 @@ const VARIANT_CONFIG = {
   },
   subtle: {
     dark: {
-      background: 'rgba(20, 26, 41, 0.70)',
+      backgroundBase: 'rgba(15, 23, 42, ALPHA)',
       border: 'rgba(255, 255, 255, 0.12)',
       specular: 'rgba(129, 140, 248, 0.20)',
       blur: Platform.OS === 'ios' ? 50 : 60,
       shadow: '#000000',
     },
     light: {
-      background: '#F8FAFC',
+      backgroundBase: 'rgba(248, 250, 252, ALPHA)',
       border: 'rgba(226, 232, 240, 0.85)',
       specular: 'rgba(255, 255, 255, 0.85)',
       blur: Platform.OS === 'ios' ? 50 : 60,
@@ -84,12 +88,26 @@ export const GlassSurface: React.FC<GlassSurfaceProps> = ({
   borderRadius = 16,
   specular = true,
   blurIntensity,
+  effect = 'clear',
   style,
   contentStyle,
 }) => {
   const { isDark } = useTheme();
+  const { settings } = useAppSettings();
+
   const mode = isDark ? 'dark' : 'light';
   const config = VARIANT_CONFIG[variant][mode];
+
+  const isLiquidEnabled = settings?.liquidGlassEnabled ?? true;
+  const transparency = settings?.liquidGlassTransparency ?? 0.75;
+
+  // Compute dynamic background alpha from transparency setting
+  const alphaVal = isLiquidEnabled
+    ? Math.max(0.15, Math.min(0.95, (1 - transparency * 0.75))).toFixed(2)
+    : '0.98';
+
+  const backgroundColor = config.backgroundBase.replace('ALPHA', alphaVal);
+  const calculatedBlur = Math.round((blurIntensity ?? config.blur) * (isLiquidEnabled ? transparency : 0.9));
 
   return (
     <View
@@ -97,20 +115,43 @@ export const GlassSurface: React.FC<GlassSurfaceProps> = ({
         styles.container,
         {
           borderRadius,
-          backgroundColor: config.background,
+          backgroundColor,
           borderColor: config.border,
           shadowColor: config.shadow,
         },
         style,
       ]}
     >
-      {/* Blur layer */}
-      <BlurView
-        pointerEvents="none"
-        intensity={blurIntensity ?? config.blur}
-        tint={isDark ? 'dark' : 'light'}
-        style={[StyleSheet.absoluteFill, { borderRadius }]}
-      />
+      {/* Native Apple Liquid Glass View when supported & enabled */}
+      {isLiquidEnabled && isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[StyleSheet.absoluteFill, { borderRadius }]}
+          effect={effect}
+          interactive
+        />
+      ) : (
+        /* Cross-Platform Fallback: Expo Blur with customized dynamic transparency */
+        <BlurView
+          pointerEvents="none"
+          intensity={calculatedBlur}
+          tint={isDark ? 'dark' : 'light'}
+          style={[StyleSheet.absoluteFill, { borderRadius }]}
+        />
+      )}
+
+      {/* Specular Highlight Rim */}
+      {specular && isLiquidEnabled && (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.specularRim,
+            {
+              borderRadius,
+              borderColor: config.specular,
+            },
+          ]}
+        />
+      )}
 
       {/* Content */}
       <View style={[styles.content, contentStyle]}>{children}</View>
@@ -127,6 +168,11 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 8,
     position: 'relative',
+  },
+  specularRim: {
+    ...StyleSheet.absoluteFill,
+    borderWidth: 1,
+    opacity: 0.6,
   },
   content: {
     position: 'relative',

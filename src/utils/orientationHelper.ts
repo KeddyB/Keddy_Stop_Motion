@@ -3,15 +3,17 @@ import { OrientationMode } from '../types/settings';
 
 export const orientationHelper = {
   /**
-   * Lock orientation based on project orientation mode
+   * Lock orientation based on project orientation mode without gyro-flipping
    */
   async lockForProject(mode: OrientationMode): Promise<void> {
     try {
       if (mode === 'landscape') {
+        // Allows rotating between Landscape Left and Landscape Right (while preventing flipping to Portrait)
         await ScreenOrientation.lockAsync(
           ScreenOrientation.OrientationLock.LANDSCAPE
         );
       } else {
+        // Strict portrait lock (prevents flipping to Landscape)
         await ScreenOrientation.lockAsync(
           ScreenOrientation.OrientationLock.PORTRAIT_UP
         );
