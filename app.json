@@ -5,7 +5,7 @@
     "scheme": "keddystopmotion",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.jpg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.keddyb.keddyStopMotion",
@@ -20,7 +20,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0B0D13",
-        "foregroundImage": "./assets/icon.jpg"
+        "foregroundImage": "./assets/icon.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.keddyb.keddyStopMotion",
