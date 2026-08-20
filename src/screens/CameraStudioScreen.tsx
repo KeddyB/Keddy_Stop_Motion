@@ -109,7 +109,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
-  const filmstripRef = useRef<FlatList>(null);
+  const filmstripRef = useRef<any>(null);
 
   // Camera Settings
   const [facing, setFacing] = useState<'back' | 'front'>('back');
@@ -184,13 +184,23 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   const [isAutoCaptureActive, setIsAutoCaptureActive] = useState(false);
   const [autoCaptureInterval, setAutoCaptureInterval] = useState(3);
   const [autoCaptureCountdown, setAutoCaptureCountdown] = useState(0);
-  
+
   // Reanimated shared values for UI-thread frame timing & smooth scrubbing
   const playbackProgress = useSharedValue(0);
   const playbackFrameIndex = useSharedValue(0);
   const scrubFrameIndex = useSharedValue(
     project.frames && project.frames.length > 0 ? project.frames.length - 1 : 0
   );
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const offsetX = event.contentOffset.x;
+      const idx = Math.max(0, Math.round(offsetX / 70));
+      if (scrubFrameIndex.value !== idx) {
+        scrubFrameIndex.value = idx;
+      }
+    }
+  });
 
   // Pre-warm / prefetch all frame image textures into memory cache for zero-lag scrubbing
   useEffect(() => {
@@ -346,7 +356,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       const totalDurationMs = (totalFrames / fps) * 1000;
 
       playbackProgress.value = 0;
-      
+
       if (loopMode === 'once') {
         playbackProgress.value = withTiming(1, {
           duration: totalDurationMs,
@@ -1262,8 +1272,8 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     activeFrameIndex !== null && activeFrameIndex >= 0 && activeFrameIndex < frames.length
       ? frames[activeFrameIndex]
       : frames.length > 0
-      ? frames[frames.length - 1]
-      : null;
+        ? frames[frames.length - 1]
+        : null;
 
   const forwardGhostFrame =
     activeFrameIndex !== null && activeFrameIndex + 1 < frames.length
@@ -1275,14 +1285,14 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     activeFrameIndex !== null && activeFrameIndex < frames.length - 1
       ? frames[activeFrameIndex]
       : frames.length >= 2
-      ? frames[frames.length - 2]
-      : null;
+        ? frames[frames.length - 2]
+        : null;
   const smearFrameB =
     activeFrameIndex !== null && activeFrameIndex < frames.length - 1
       ? frames[activeFrameIndex + 1]
       : frames.length >= 2
-      ? frames[frames.length - 1]
-      : null;
+        ? frames[frames.length - 1]
+        : null;
 
   // Render loading spinner while permission state is being resolved
   // Dynamic Aspect Ratio calculation from project settings
@@ -1804,8 +1814,8 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                         loopMode === 'loop'
                           ? 'repeat'
                           : loopMode === 'bounce'
-                          ? 'swap-horizontal'
-                          : 'arrow-forward'
+                            ? 'swap-horizontal'
+                            : 'arrow-forward'
                       }
                       size={13}
                       color="#FFFFFF"
@@ -1887,7 +1897,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               color="#FFFFFF"
             />
           </Pressable>
-          
+
           {/* Tactile Red Stop-Motion Shutter Button */}
           <Pressable
             unstable_pressDelay={0}
@@ -2120,8 +2130,8 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                 gridMode === 'none'
                   ? 'grid-outline'
                   : gridMode === 'crosshair'
-                  ? 'locate-outline'
-                  : 'grid'
+                    ? 'locate-outline'
+                    : 'grid'
               }
               size={20}
               color="#FFFFFF"
@@ -2382,7 +2392,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
             <View style={styles.fixedCenterSquareBorder} />
           </View>
 
-          <FlatList
+          <Animated.FlatList
             ref={filmstripRef}
             data={frames}
             horizontal
@@ -2404,16 +2414,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               styles.filmstripContent,
               { paddingHorizontal: Math.max(0, (windowWidth - 70) / 2) },
             ]}
-            onScroll={(event) => {
-              const offsetX = event.nativeEvent.contentOffset.x;
-              const idx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
-              if (scrubFrameIndex.value !== idx) {
-                scrubFrameIndex.value = idx;
-              }
-              if (activeFrameIndex !== idx) {
-                setActiveFrameIndex(idx);
-              }
-            }}
+            onScroll={scrollHandler}
             onMomentumScrollEnd={(event) => {
               const offsetX = event.nativeEvent.contentOffset.x;
               const idx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
