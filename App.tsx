@@ -12,6 +12,7 @@ import { SplashScreen } from './src/components/SplashScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { CameraStudioScreen } from './src/screens/CameraStudioScreen';
+import { TutorialOverlay } from './src/components/TutorialOverlay';
 import { LiquidGlassTabBar, TabKey } from './src/components/LiquidGlassTabBar';
 import { NewProjectModal } from './src/components/NewProjectModal';
 import { ImportLoadingModal } from './src/components/ImportLoadingModal';
@@ -28,6 +29,7 @@ const MainApp: React.FC = () => {
   const { projects, createProject, refreshProjects, updateProject } = useProjects();
   const { settings } = useAppSettings();
   const [showSplash, setShowSplash] = useState(true);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [pendingStudioProject, setPendingStudioProject] = useState<StopMotionProject | null>(null);
@@ -57,7 +59,7 @@ const MainApp: React.FC = () => {
         if (!camera) {
           setShowPermissionModal(true);
         } else {
-          await storageService.setFirstLaunchComplete();
+          setShowTutorial(true);
         }
       }
     };
@@ -93,18 +95,18 @@ const MainApp: React.FC = () => {
   // Request & Proceed Handler
   const handleGrantPermissions = async () => {
     await permissionService.requestAllPermissions();
-    await storageService.setFirstLaunchComplete();
     setShowPermissionModal(false);
-
-    if (pendingStudioProject) {
-      setActiveStudioProject(pendingStudioProject);
-      setPendingStudioProject(null);
-    }
+    setShowTutorial(true);
   };
 
   const handleSkipPermissions = async () => {
-    await storageService.setFirstLaunchComplete();
     setShowPermissionModal(false);
+    setShowTutorial(true);
+  };
+
+  const handleTutorialComplete = async () => {
+    setShowTutorial(false);
+    await storageService.setFirstLaunchComplete();
     if (pendingStudioProject) {
       setActiveStudioProject(pendingStudioProject);
       setPendingStudioProject(null);
@@ -294,6 +296,11 @@ const MainApp: React.FC = () => {
           onGrant={handleGrantPermissions}
           onSkip={handleSkipPermissions}
         />
+      )}
+
+      {/* First Time Tutorial */}
+      {!showSplash && !showPermissionModal && showTutorial && (
+        <TutorialOverlay onComplete={handleTutorialComplete} />
       )}
 
       {/* New Project Modal triggered by Floating Plus or Screen Button */}

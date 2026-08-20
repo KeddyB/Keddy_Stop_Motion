@@ -8,6 +8,7 @@ import {
   Dimensions,
   Platform,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../theme/ThemeContext';
 
 interface SplashScreenProps {
@@ -21,7 +22,6 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
-  const logoSpin = useRef(new Animated.Value(0)).current;
   const textFadeAnim = useRef(new Animated.Value(0)).current;
   const containerOpacity = useRef(new Animated.Value(1)).current;
 
@@ -70,31 +70,23 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
         },
       ]}
     >
-      {/* Background ambient glow */}
+      {/* Background cinematic image */}
       <Animated.View
         style={[
-          styles.glowCircle,
-          {
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }],
-          },
-        ]}
-      />
-
-      <Animated.View
-        style={[
-          styles.logoWrapper,
+          StyleSheet.absoluteFill,
           {
             opacity: fadeAnim,
             transform: [{ scale: scaleAnim }],
           },
         ]}
       >
-        {/* Outer Ring */}
-        <View style={styles.outerRing}>
-          {/* Cursive 'K' Monogram */}
-          <Text style={styles.cursiveK}>𝒦</Text>
-        </View>
+        <ExpoImage
+          source={require('../../assets/splash-bg.jpg')}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+        />
+        {/* Dark overlay to ensure text readability */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(11, 13, 19, 0.45)' }]} />
       </Animated.View>
 
       <Animated.View style={[styles.textWrapper, { opacity: textFadeAnim }]}>
@@ -119,46 +111,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 9999,
-  },
-  glowCircle: {
-    position: 'absolute',
-    width: width * 0.75,
-    height: width * 0.75,
-    borderRadius: (width * 0.75) / 2,
-    backgroundColor: '#6366F1',
-    opacity: 0.15,
-    filter: Platform.OS === 'web' ? 'blur(60px)' : undefined,
-  },
-  logoWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  outerRing: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    borderWidth: 2.5,
-    borderColor: '#818CF8',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(99, 102, 241, 0.12)',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  cursiveK: {
-    fontSize: 84,
-    color: '#FFFFFF',
-    fontWeight: '300',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    lineHeight: 96,
-    includeFontPadding: false,
-    textShadowColor: 'rgba(129, 140, 248, 0.8)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 12,
   },
   textWrapper: {
     marginTop: 28,
