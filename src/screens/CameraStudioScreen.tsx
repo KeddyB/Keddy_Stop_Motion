@@ -2391,6 +2391,15 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
             snapToInterval={70}
             decelerationRate={0.985}
             disableIntervalMomentum={false}
+            getItemLayout={(_, index) => ({
+              length: 70,
+              offset: 70 * index,
+              index,
+            })}
+            initialNumToRender={15}
+            maxToRenderPerBatch={15}
+            windowSize={15}
+            removeClippedSubviews={false}
             contentContainerStyle={[
               styles.filmstripContent,
               { paddingHorizontal: Math.max(0, (windowWidth - 70) / 2) },
@@ -2400,6 +2409,9 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               const idx = Math.max(0, Math.min(frames.length - 1, Math.round(offsetX / 70)));
               if (scrubFrameIndex.value !== idx) {
                 scrubFrameIndex.value = idx;
+              }
+              if (activeFrameIndex !== idx) {
+                setActiveFrameIndex(idx);
               }
             }}
             onMomentumScrollEnd={(event) => {
@@ -2445,6 +2457,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                       style={styles.frameThumbnail}
                       transition={0}
                       cachePolicy="memory-disk"
+                      priority="high"
                     />
 
                     {isMultiSelect && (

@@ -166,7 +166,7 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
               {!isExporting && !isComplete && (
                 <ScrollView 
                   style={styles.configContainer} 
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator={true}
                   keyboardShouldPersistTaps="handled"
                 >
                   {/* File Name Section */}
@@ -432,10 +432,11 @@ const styles = StyleSheet.create({
   modalCard: {
     width: '100%',
     maxWidth: 440,
-    maxHeight: '85%',
+    maxHeight: '92%',
     borderRadius: 24,
     borderWidth: 1,
-    padding: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     alignItems: 'center',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.35,
@@ -443,12 +444,12 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   iconWrapper: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   iconCircle: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -457,20 +458,21 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.3,
-    marginBottom: 4,
+    marginBottom: 2,
     textAlign: 'center',
   },
   modalSubtitle: {
     fontSize: 12,
     textAlign: 'center',
-    lineHeight: 17,
-    marginBottom: 14,
+    lineHeight: 16,
+    marginBottom: 12,
     paddingHorizontal: 8,
   },
   configContainer: {
     width: '100%',
-    maxHeight: 280,
-    marginBottom: 16,
+    maxHeight: 460,
+    flexShrink: 1,
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 12,

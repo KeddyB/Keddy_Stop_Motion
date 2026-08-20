@@ -266,10 +266,13 @@ export const videoExportService = {
             }
             const vfPart = `-vf "${scaleFilter}" `;
             
-            // High-Bitrate, Zero-Drop Frame Encoding:
-            // -c:v libopenh264 -pix_fmt yuv420p with broadcast-grade bitrate
-            // -vsync 0 -avoid_negative_ts make_zero -movflags +faststart: Preserves 100% of frames
-            command = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v libopenh264 -b:v ${bitrateConfig.bitrate} -maxrate ${bitrateConfig.maxrate} -bufsize ${bitrateConfig.bufsize} -pix_fmt yuv420p -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;
+            // High-Bitrate, Zero-Drop, High-Profile Frame Encoding:
+            // -c:v libopenh264 -profile:v high -level 4.1: Broadcast-grade H.264 high profile compression
+            // -allow_skip_frames 0: Prevents OpenH264 from dropping complex stop-motion frames
+            // -g ${Math.max(1, fps)}: Guarantees frequent keyframes (I-frames) so every frame including the final frame is held and displayed accurately
+            // -colorspace bt709 -color_primaries bt709 -color_trc bt709 -brand mp42: Standard color matrix & MP4 container compatibility
+            // -vsync 0 -avoid_negative_ts make_zero -movflags +faststart: Preserves 100% of frames with fast web/mobile streaming
+            command = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v libopenh264 -profile:v high -level 4.1 -allow_skip_frames 0 -g ${Math.max(1, fps)} -b:v ${bitrateConfig.bitrate} -maxrate ${bitrateConfig.maxrate} -bufsize ${bitrateConfig.bufsize} -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 -color_trc bt709 -brand mp42 -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;
           } else if (exportConfig.format === 'gif_animation') {
             outputFile = `${tempDir}${sanitizedBaseName}.gif`;
             const cleanOutput = outputFile.replace(/^file:\/\//, '');
@@ -298,7 +301,7 @@ export const videoExportService = {
                 audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 192k `;
              }
              const vfPart = `-vf "${scaleFilter}" `;
-             const fallbackCmd = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v mpeg4 -qscale:v 1 -pix_fmt yuv420p -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;
+             const fallbackCmd = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v mpeg4 -qscale:v 1 -g ${Math.max(1, fps)} -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 -color_trc bt709 -brand mp42 -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;
              session = await FFmpegKit.execute(fallbackCmd);
              returnCode = await session.getReturnCode();
           }

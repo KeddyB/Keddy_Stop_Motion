@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Keddy Stop Motion",
-    "slug": "keddyStopMotion",
+    "slug": "keddy",
     "scheme": "keddystopmotion",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -31,7 +31,18 @@
         "READ_MEDIA_IMAGES",
         "READ_MEDIA_VIDEO",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "intentFilters": [
         {
@@ -81,8 +92,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "86baf9cd-7d7a-4391-9733-f7fa79fc8a04"
+        "projectId": "719a8912-a789-4fd7-8c6a-c13793ff342b"
       }
-    }
+    },
+    "owner": "keddybubs-team"
   }
 }
