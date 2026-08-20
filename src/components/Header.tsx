@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { useAppInsets } from '../utils/useAppInsets';
 import { GlassButton } from './ui/GlassButton';
@@ -19,8 +19,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onReplaySplash }
       style={[
         styles.container,
         {
-          backgroundColor: theme.surface,
-          borderBottomColor: theme.border,
+          backgroundColor: theme.background,
           paddingTop: insets.top + (Platform.OS === 'android' ? 6 : 2),
         },
       ]}
@@ -34,11 +33,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onReplaySplash }
           onPress={onReplaySplash}
         >
           <View style={[styles.miniLogo, { backgroundColor: theme.primary }]}>
-            <Text style={styles.miniLogoText}>𝒦</Text>
+            <MaterialIcons name="local-movies" size={24} color="#FFFFFF" />
           </View>
           <View style={styles.titleWrapper}>
-            <Text style={[styles.title, { color: theme.text }]}>Keddy</Text>
-            <Text style={[styles.tagline, { color: theme.primaryLight }]}>STOP MOTION</Text>
+            <Text style={[styles.title, { color: theme.text }]}>STOP MOTION</Text>
+            <Text style={[styles.tagline, { color: theme.primaryLight }]}>WORKSHOP</Text>
           </View>
         </Pressable>
 
@@ -73,7 +72,6 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    borderBottomWidth: 1,
   },
   innerRow: {
     flexDirection: 'row',
@@ -98,14 +96,6 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
-  miniLogoText: {
-    fontSize: 22,
-    color: '#FFFFFF',
-    fontWeight: '300',
-    fontStyle: 'italic',
-    lineHeight: 26,
-    textAlign: 'center',
-  },
   titleWrapper: {
     justifyContent: 'center',
   },
@@ -113,12 +103,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.3,
+    fontFamily: Platform.OS === 'ios' ? 'AvenirNext-Heavy' : 'sans-serif-black',
   },
   tagline: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 4,
     marginTop: -2,
+    fontFamily: Platform.OS === 'ios' ? 'HelveticaNeue-CondensedBold' : 'sans-serif-condensed',
   },
   actions: {
     flexDirection: 'row',

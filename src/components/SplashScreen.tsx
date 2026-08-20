@@ -91,7 +91,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
 
       <Animated.View style={[styles.textWrapper, { opacity: textFadeAnim }]}>
         <Text style={styles.brandTitle}>Keddy</Text>
-        <Text style={styles.brandSubtitle}>STOP MOTION STUDIO</Text>
+        <Text style={styles.brandSubtitle}>STOP MOTION WORKSHOP</Text>
       </Animated.View>
 
       <View style={styles.footer}>

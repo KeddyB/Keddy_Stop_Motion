@@ -274,7 +274,7 @@ const MainApp: React.FC = () => {
           </View>
 
           {/* Floating Liquid Glass Tab Bar with Circular Plus Button */}
-          {!showSplash && !isHomeSelectionMode && (
+          {!showSplash && !isHomeSelectionMode && !showTutorial && (
             <LiquidGlassTabBar
               activeTab={activeTab}
               onSelectTab={(tab) => setActiveTab(tab)}

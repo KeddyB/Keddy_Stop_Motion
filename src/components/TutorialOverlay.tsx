@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
@@ -23,7 +24,7 @@ interface TutorialOverlayProps {
 const TUTORIAL_SLIDES = [
   {
     id: 'welcome',
-    title: 'Welcome to Keddy',
+    title: 'Welcome to Your Stop Motion Workshop',
     description: 'The easiest way to create professional stop motion animations right from your phone.',
     icon: 'videocam',
   },
@@ -49,6 +50,7 @@ const TUTORIAL_SLIDES = [
 
 export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onComplete }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef<FlatList>(null);
@@ -73,7 +75,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onComplete }) 
 
   const renderItem = ({ item, index }: { item: typeof TUTORIAL_SLIDES[0]; index: number }) => {
     return (
-      <View style={[styles.slide, { width }]}>
+      <View style={[styles.slide, { width, paddingTop: insets.top, paddingBottom: insets.bottom + 180 }]}>
         <View style={styles.iconContainer}>
           <Ionicons name={item.icon as any} size={80} color="#6366F1" />
         </View>
@@ -86,6 +88,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onComplete }) 
   return (
     <View style={styles.container}>
       <BlurView intensity={90} tint={theme.isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 0, 0, 0.65)' }]} />
 
       <Animated.FlatList
         ref={flatListRef}
@@ -100,7 +103,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onComplete }) 
         renderItem={renderItem}
       />
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { bottom: Math.max(30, insets.bottom + 10) }]}>
         <View style={styles.pagination}>
           {TUTORIAL_SLIDES.map((_, i) => {
             const inputRange = [(i - 1) * width, i * width, (i + 1) * width];
@@ -141,7 +144,11 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onComplete }) 
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     zIndex: 9998, // just below splash screen
   },
   slide: {
@@ -177,7 +184,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     position: 'absolute',
-    bottom: 50,
     left: 0,
     right: 0,
     paddingHorizontal: 40,
