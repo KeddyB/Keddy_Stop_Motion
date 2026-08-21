@@ -36,6 +36,12 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# credentials & secrets
+google-service-account*.json
+*-key.json
+*.keystore
+
 # generated native folders
 /ios
 /android
+

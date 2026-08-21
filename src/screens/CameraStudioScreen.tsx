@@ -1083,78 +1083,85 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   const currentTargetFrame = frames[currentTargetFrameIndex];
 
   const handleAddDoodleStroke = (stroke: DoodleStroke) => {
-    if (!currentTargetFrame) return;
+    setFrames((prevFrames) => {
+      const targetIndex = activeFrameIndex !== null ? activeFrameIndex : Math.max(0, prevFrames.length - 1);
+      const target = prevFrames[targetIndex];
+      if (!target) return prevFrames;
+      const updatedDoodles = [...(target.doodles || []), stroke];
+      const updatedFrames = [...prevFrames];
+      updatedFrames[targetIndex] = {
+        ...target,
+        doodles: updatedDoodles,
+      };
 
-    const updatedDoodles = [...(currentTargetFrame.doodles || []), stroke];
-    const updatedFrames = [...frames];
-    updatedFrames[currentTargetFrameIndex] = {
-      ...currentTargetFrame,
-      doodles: updatedDoodles,
-    };
+      setUndoStack((prev) => [
+        ...prev,
+        {
+          type: 'ADD_DOODLE',
+          frameIndex: targetIndex,
+          stroke,
+        },
+      ]);
+      setRedoStack([]);
 
-    setFrames(updatedFrames);
-
-    setUndoStack((prev) => [
-      ...prev,
-      {
-        type: 'ADD_DOODLE',
-        frameIndex: currentTargetFrameIndex,
-        stroke,
-      },
-    ]);
-    setRedoStack([]);
-
-    syncProjectChanges(updatedFrames);
+      syncProjectChanges(updatedFrames);
+      return updatedFrames;
+    });
   };
 
   const handleUndoDoodleStroke = () => {
-    if (!currentTargetFrame || !currentTargetFrame.doodles || currentTargetFrame.doodles.length === 0) return;
-    const currentDoodles = currentTargetFrame.doodles;
-    const lastStroke = currentDoodles[currentDoodles.length - 1];
-    const updatedDoodles = currentDoodles.slice(0, -1);
-    const updatedFrames = [...frames];
-    updatedFrames[currentTargetFrameIndex] = {
-      ...currentTargetFrame,
-      doodles: updatedDoodles,
-    };
+    setFrames((prevFrames) => {
+      const targetIndex = activeFrameIndex !== null ? activeFrameIndex : Math.max(0, prevFrames.length - 1);
+      const target = prevFrames[targetIndex];
+      if (!target || !target.doodles || target.doodles.length === 0) return prevFrames;
+      const lastStroke = target.doodles[target.doodles.length - 1];
+      const updatedDoodles = target.doodles.slice(0, -1);
+      const updatedFrames = [...prevFrames];
+      updatedFrames[targetIndex] = {
+        ...target,
+        doodles: updatedDoodles,
+      };
 
-    setFrames(updatedFrames);
+      setUndoStack((prev) => [
+        ...prev,
+        {
+          type: 'ADD_DOODLE',
+          frameIndex: targetIndex,
+          stroke: lastStroke,
+        },
+      ]);
+      setRedoStack([]);
 
-    setUndoStack((prev) => [
-      ...prev,
-      {
-        type: 'ADD_DOODLE',
-        frameIndex: currentTargetFrameIndex,
-        stroke: lastStroke,
-      },
-    ]);
-    setRedoStack([]);
-
-    syncProjectChanges(updatedFrames);
+      syncProjectChanges(updatedFrames);
+      return updatedFrames;
+    });
   };
 
   const handleClearFrameDoodles = () => {
-    if (!currentTargetFrame || !currentTargetFrame.doodles || currentTargetFrame.doodles.length === 0) return;
-    const prevDoodles = currentTargetFrame.doodles;
-    const updatedFrames = [...frames];
-    updatedFrames[currentTargetFrameIndex] = {
-      ...currentTargetFrame,
-      doodles: [],
-    };
+    setFrames((prevFrames) => {
+      const targetIndex = activeFrameIndex !== null ? activeFrameIndex : Math.max(0, prevFrames.length - 1);
+      const target = prevFrames[targetIndex];
+      if (!target || !target.doodles || target.doodles.length === 0) return prevFrames;
+      const prevDoodles = target.doodles;
+      const updatedFrames = [...prevFrames];
+      updatedFrames[targetIndex] = {
+        ...target,
+        doodles: [],
+      };
 
-    setFrames(updatedFrames);
+      setUndoStack((prev) => [
+        ...prev,
+        {
+          type: 'CLEAR_DOODLES',
+          frameIndex: targetIndex,
+          previousDoodles: prevDoodles,
+        },
+      ]);
+      setRedoStack([]);
 
-    setUndoStack((prev) => [
-      ...prev,
-      {
-        type: 'CLEAR_DOODLES',
-        frameIndex: currentTargetFrameIndex,
-        previousDoodles: prevDoodles,
-      },
-    ]);
-    setRedoStack([]);
-
-    syncProjectChanges(updatedFrames);
+      syncProjectChanges(updatedFrames);
+      return updatedFrames;
+    });
   };
 
   // Reverse Sequence
@@ -1838,16 +1845,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               </View>
             )}
 
-            {/* Hand Doodle Mode Canvas */}
-            {isDoodleMode && currentTargetFrame && (
-              <DoodleCanvas
-                strokes={currentTargetFrame.doodles || []}
-                onAddStroke={handleAddDoodleStroke}
-                onClearDoodles={handleClearFrameDoodles}
-                onClose={() => setIsDoodleMode(false)}
-                frameIndex={currentTargetFrameIndex}
-              />
-            )}
+
           </View>
         </View>
 
@@ -2239,7 +2237,14 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               },
             ]}
             disabled={frames.length === 0}
-            onPress={() => setIsDoodleMode(!isDoodleMode)}
+            onPress={() => {
+              if (!isDoodleMode) {
+                const targetIdx = activeFrameIndex !== null ? activeFrameIndex : Math.max(0, frames.length - 1);
+                setActiveFrameIndex(targetIdx);
+                scrubFrameIndex.value = targetIdx;
+              }
+              setIsDoodleMode(!isDoodleMode);
+            }}
           >
             <Ionicons name="brush-outline" size={20} color="#FFFFFF" />
           </Pressable>
@@ -2538,12 +2543,15 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       {/* Hand Doodle Canvas Overlay */}
       {isDoodleMode && currentTargetFrame && (
         <DoodleCanvas
+          frameUri={currentTargetFrame.proxyUri || currentTargetFrame.uri}
+          aspectRatio={targetAspectRatio}
           strokes={currentTargetFrame.doodles || []}
           onAddStroke={handleAddDoodleStroke}
           onUndoLastStroke={handleUndoDoodleStroke}
           onClearDoodles={handleClearFrameDoodles}
           onClose={() => setIsDoodleMode(false)}
           frameIndex={currentTargetFrameIndex}
+          totalFrames={frames.length}
         />
       )}
 
