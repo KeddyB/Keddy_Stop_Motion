@@ -7,6 +7,11 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-bg.jpg",
+      "resizeMode": "cover",
+      "backgroundColor": "#0B0D13"
+    },
     "ios": {
       "bundleIdentifier": "com.keddyb.keddyStopMotion",
       "supportsTablet": true,
