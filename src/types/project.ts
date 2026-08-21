@@ -1,5 +1,6 @@
 import { AspectRatioOption, OrientationMode } from './settings';
 import { DoodleStroke } from './doodle';
+import { TextOverlay } from './textOverlay';
 
 export interface Frame {
   id: string;
@@ -7,6 +8,7 @@ export interface Frame {
   proxyUri?: string; // The low-res proxy thumbnail URI for hardware playback
   timestamp: number;
   doodles?: DoodleStroke[];
+  textOverlays?: TextOverlay[];
 }
 
 export interface AudioTrack {

@@ -21,6 +21,8 @@ import {
 } from '@callstack/liquid-glass';
 import { Frame } from '../types/project';
 import { useAppSettings } from '../context/SettingsContext';
+import { TextOverlay } from '../types/textOverlay';
+import { fontLoader } from '../utils/fontLoader';
 
 interface FullScreenPlaybackModalProps {
   visible: boolean;
@@ -43,7 +45,7 @@ const pointsToSvgPath = (points: Array<{ x: number; y: number }>) => {
 };
 
 // Memoized Canvas View: Prevents image reloads while controls are interacted with
-const FullScreenCanvas = memo(({ imageUri, doodles }: { imageUri: string; doodles?: any[] }) => (
+const FullScreenCanvas = memo(({ imageUri, doodles, textOverlays }: { imageUri: string; doodles?: any[]; textOverlays?: TextOverlay[] }) => (
   <View style={styles.canvasContainer} pointerEvents="none">
     {imageUri ? (
       <ExpoImage
@@ -70,6 +72,50 @@ const FullScreenCanvas = memo(({ imageUri, doodles }: { imageUri: string; doodle
           />
         ))}
       </Svg>
+    )}
+
+    {textOverlays && textOverlays.length > 0 && (
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {textOverlays.map((ov) => (
+          <View
+            key={ov.id}
+            style={{
+              position: 'absolute',
+              left: `${(ov.x * 100).toFixed(2)}%` as any,
+              top: `${(ov.y * 100).toFixed(2)}%` as any,
+              transform: [{ translateX: -50 }, { translateY: -50 }],
+            }}
+          >
+            <View
+              style={
+                ov.backgroundColor && ov.backgroundColor !== 'transparent'
+                  ? { backgroundColor: ov.backgroundColor, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 }
+                  : null
+              }
+            >
+              <Text
+                style={[
+                  {
+                    fontFamily: fontLoader.isFontLoaded(ov.fontFamily)
+                      ? ov.fontFamily
+                      : undefined,
+                    fontSize: ov.fontSize,
+                    color: ov.color,
+                    textAlign: ov.align || 'center',
+                  },
+                  ov.shadow && {
+                    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+                    textShadowOffset: { width: 1.5, height: 1.5 },
+                    textShadowRadius: 3,
+                  },
+                ]}
+              >
+                {ov.text}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
     )}
   </View>
 ));
@@ -241,7 +287,11 @@ export const FullScreenPlaybackModal: React.FC<FullScreenPlaybackModalProps> = (
       <StatusBar hidden />
       <View style={styles.container}>
         {/* Full Screen High-Performance Playback Canvas */}
-        <FullScreenCanvas imageUri={imageSourceUri} doodles={activeFrame?.doodles} />
+        <FullScreenCanvas
+          imageUri={imageSourceUri}
+          doodles={activeFrame?.doodles}
+          textOverlays={activeFrame?.textOverlays}
+        />
 
         {/* Dedicated Background Tap Area (behind HUD in z-index so buttons are never obstructed) */}
         <Pressable

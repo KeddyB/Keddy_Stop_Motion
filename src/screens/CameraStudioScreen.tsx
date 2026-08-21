@@ -48,6 +48,7 @@ import { orientationHelper } from '../utils/orientationHelper';
 import { storageService } from '../services/storageService';
 import { StopMotionProject, Frame, AudioTrack } from '../types/project';
 import { DoodleCanvas } from '../components/DoodleCanvas';
+import { TextOverlayEditor } from '../components/TextOverlayEditor';
 import { StudioSettingsModal, OnionSkinConfig } from '../components/StudioSettingsModal';
 import { SmearModal } from '../components/SmearModal';
 import { FullScreenPlaybackModal } from '../components/FullScreenPlaybackModal';
@@ -59,6 +60,8 @@ import { videoExportService, RenderProgressUpdate } from '../services/videoExpor
 import { ExportConfig } from '../types/export';
 import { photoTimestampHelper } from '../utils/photoTimestampHelper';
 import { DoodleStroke, Point } from '../types/doodle';
+import { TextOverlay } from '../types/textOverlay';
+import { fontLoader } from '../utils/fontLoader';
 import { HistoryAction } from '../types/history';
 import { PreviewResolution } from '../types/settings';
 import { GlassSurface, GlassButton } from '../components/ui';
@@ -260,6 +263,9 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
 
   // Doodle Mode State
   const [isDoodleMode, setIsDoodleMode] = useState(false);
+
+  // Text Overlay Mode State (100 Offline Google Fonts)
+  const [isTextMode, setIsTextMode] = useState(false);
 
   // Playback Loop Modes: 'loop' (continuous) | 'bounce' (ping-pong) | 'once'
   const [loopMode, setLoopMode] = useState<'loop' | 'bounce' | 'once'>('loop');
@@ -707,6 +713,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
           ...f,
           id: `${f.id}_dup_${Date.now()}`,
           doodles: f.doodles ? [...f.doodles] : undefined,
+          textOverlays: f.textOverlays ? [...f.textOverlays] : undefined,
         });
       }
     });
@@ -975,6 +982,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                 ...f,
                 id: `${f.id}_dup_${idx}_${Date.now()}`,
                 doodles: f.doodles ? [...f.doodles] : undefined,
+                textOverlays: f.textOverlays ? [...f.textOverlays] : undefined,
               });
             });
 
@@ -1004,6 +1012,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       ...target,
       id: `${target.id}_dup_${Date.now()}`,
       doodles: target.doodles ? [...target.doodles] : undefined,
+      textOverlays: target.textOverlays ? [...target.textOverlays] : undefined,
     };
 
     const updated = [...frames];
@@ -1025,15 +1034,19 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   };
 
   // 8. Insert Generated Smear Frame
-  const handleInsertSmearFrame = (newFrame: Frame) => {
+  const handleInsertSmearFrame = (newFrame: Frame, insertIndex?: number) => {
     const insertAt =
-      activeFrameIndex !== null ? activeFrameIndex + 1 : frames.length - 1;
+      insertIndex !== undefined
+        ? insertIndex
+        : activeFrameIndex !== null
+        ? activeFrameIndex + 1
+        : frames.length - 1;
     const updated = [...frames];
     updated.splice(insertAt, 0, newFrame);
     setFrames(updated);
     setActiveFrameIndex(insertAt);
     scrubFrameIndex.value = insertAt;
-    setIsSoloView(false);
+    setIsSoloView(true);
 
     setTimeout(() => {
       filmstripRef.current?.scrollToOffset({
@@ -1164,6 +1177,35 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     });
   };
 
+  // 10B. Text Overlay Handler
+  const handleSaveTextOverlays = (updatedOverlays: TextOverlay[]) => {
+    setFrames((prevFrames) => {
+      const targetIndex = activeFrameIndex !== null ? activeFrameIndex : Math.max(0, prevFrames.length - 1);
+      const target = prevFrames[targetIndex];
+      if (!target) return prevFrames;
+      const prevTextOverlays = target.textOverlays || [];
+      const updatedFrames = [...prevFrames];
+      updatedFrames[targetIndex] = {
+        ...target,
+        textOverlays: updatedOverlays,
+      };
+
+      setUndoStack((prev) => [
+        ...prev,
+        {
+          type: 'SET_TEXT_OVERLAYS',
+          frameIndex: targetIndex,
+          previousTextOverlays: prevTextOverlays,
+          newTextOverlays: updatedOverlays,
+        },
+      ]);
+      setRedoStack([]);
+
+      syncProjectChanges(updatedFrames);
+      return updatedFrames;
+    });
+  };
+
   // Reverse Sequence
   const handleReverseFrames = () => {
     if (frames.length < 2) return;
@@ -1228,6 +1270,14 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
         setFrames(updatedFrames);
         syncProjectChanges(updatedFrames);
       }
+    } else if (action.type === 'SET_TEXT_OVERLAYS') {
+      const targetFrame = frames[action.frameIndex];
+      if (targetFrame) {
+        const updatedFrames = [...frames];
+        updatedFrames[action.frameIndex] = { ...targetFrame, textOverlays: action.previousTextOverlays };
+        setFrames(updatedFrames);
+        syncProjectChanges(updatedFrames);
+      }
     }
 
     setUndoStack(nextUndoStack);
@@ -1264,6 +1314,14 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       if (targetFrame) {
         const updatedFrames = [...frames];
         updatedFrames[action.frameIndex] = { ...targetFrame, doodles: [] };
+        setFrames(updatedFrames);
+        syncProjectChanges(updatedFrames);
+      }
+    } else if (action.type === 'SET_TEXT_OVERLAYS') {
+      const targetFrame = frames[action.frameIndex];
+      if (targetFrame) {
+        const updatedFrames = [...frames];
+        updatedFrames[action.frameIndex] = { ...targetFrame, textOverlays: action.newTextOverlays };
         setFrames(updatedFrames);
         syncProjectChanges(updatedFrames);
       }
@@ -2249,6 +2307,33 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
             <Ionicons name="brush-outline" size={20} color="#FFFFFF" />
           </Pressable>
 
+          {/* 8B. Text Tool (100 Offline Google Fonts) */}
+          <Pressable
+            unstable_pressDelay={0}
+            pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={({ pressed }) => [
+              styles.toolbarIconButton,
+              isTextMode && styles.toolbarIconBtnActive,
+              frames.length === 0 && styles.disabledHudBtn,
+              {
+                opacity: frames.length === 0 ? 0.35 : pressed ? 0.75 : 1,
+                transform: [{ scale: pressed ? 0.88 : 1 }],
+              },
+            ]}
+            disabled={frames.length === 0}
+            onPress={() => {
+              if (!isTextMode) {
+                const targetIdx = activeFrameIndex !== null ? activeFrameIndex : Math.max(0, frames.length - 1);
+                setActiveFrameIndex(targetIdx);
+                scrubFrameIndex.value = targetIdx;
+              }
+              setIsTextMode(!isTextMode);
+            }}
+          >
+            <Ionicons name="text-outline" size={20} color="#FFFFFF" />
+          </Pressable>
+
           {/* 9. Generate Smear Tool */}
           <Pressable
             unstable_pressDelay={0}
@@ -2482,6 +2567,12 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                       </View>
                     )}
 
+                    {item.textOverlays && item.textOverlays.length > 0 && (
+                      <View style={[styles.doodleDot, { top: 4, right: item.doodles && item.doodles.length > 0 ? 18 : 4, backgroundColor: '#6366F1' }]}>
+                        <Ionicons name="text" size={7} color="#FFFFFF" />
+                      </View>
+                    )}
+
                     <View style={styles.frameIndexBadge}>
                       <Text style={styles.frameIndexText}>{index + 1}</Text>
                     </View>
@@ -2555,6 +2646,19 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
         />
       )}
 
+      {/* 100 Offline Google Fonts Text Studio Overlay */}
+      {isTextMode && currentTargetFrame && (
+        <TextOverlayEditor
+          frameUri={currentTargetFrame.proxyUri || currentTargetFrame.uri}
+          aspectRatio={targetAspectRatio}
+          textOverlays={currentTargetFrame.textOverlays || []}
+          onSaveTextOverlays={handleSaveTextOverlays}
+          onClose={() => setIsTextMode(false)}
+          frameIndex={currentTargetFrameIndex}
+          totalFrames={frames.length}
+        />
+      )}
+
       {/* In-Studio Settings Modal */}
       <StudioSettingsModal
         visible={showStudioSettings}
@@ -2568,26 +2672,17 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       />
 
       {/* Smear Frame Generator Modal */}
-      {showSmearModal && frames.length >= 2 && (() => {
-        const activeIdx = activeFrameIndex !== null && activeFrameIndex >= 0 ? activeFrameIndex : frames.length - 1;
-        const smearFrameA = frames[activeIdx] || frames[frames.length - 2] || frames[0];
-        const smearFrameB = frames[activeIdx + 1] || frames[activeIdx - 1] || frames[1];
-        return (
-          <SmearModal
-            visible={showSmearModal}
-            onClose={() => setShowSmearModal(false)}
-            frameA={smearFrameA}
-            frameB={smearFrameB}
-            projectId={project.id}
-            onInsertSmearFrame={handleInsertSmearFrame}
-            insertIndex={
-              activeFrameIndex !== null
-                ? activeFrameIndex + 1
-                : frames.length - 1
-            }
-          />
-        );
-      })()}
+      {showSmearModal && frames.length >= 2 && (
+        <SmearModal
+          visible={showSmearModal}
+          onClose={() => setShowSmearModal(false)}
+          frames={frames}
+          initialFrameIndex={activeFrameIndex !== null ? activeFrameIndex : Math.max(0, frames.length - 2)}
+          aspectRatio={targetAspectRatio}
+          projectId={project.id}
+          onInsertSmearFrame={handleInsertSmearFrame}
+        />
+      )}
 
       {/* Full Screen High-Resolution Studio Playback */}
       {showFullScreenPlayback && (
@@ -3622,6 +3717,49 @@ const HardwareFrameLayer = React.memo(({ frame, index, activeFrameIndex, aspectF
             />
           ))}
         </Svg>
+      )}
+      {frame.textOverlays && frame.textOverlays.length > 0 && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 25 }]} pointerEvents="none">
+          {frame.textOverlays.map((ov) => (
+            <View
+              key={ov.id}
+              style={{
+                position: 'absolute',
+                left: `${(ov.x * 100).toFixed(2)}%` as any,
+                top: `${(ov.y * 100).toFixed(2)}%` as any,
+                transform: [{ translateX: -50 }, { translateY: -50 }],
+              }}
+            >
+              <View
+                style={
+                  ov.backgroundColor && ov.backgroundColor !== 'transparent'
+                    ? { backgroundColor: ov.backgroundColor, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 }
+                    : null
+                }
+              >
+                <Text
+                  style={[
+                    {
+                      fontFamily: fontLoader.isFontLoaded(ov.fontFamily)
+                        ? ov.fontFamily
+                        : undefined,
+                      fontSize: ov.fontSize,
+                      color: ov.color,
+                      textAlign: ov.align || 'center',
+                    },
+                    ov.shadow && {
+                      textShadowColor: 'rgba(0, 0, 0, 0.9)',
+                      textShadowOffset: { width: 1.5, height: 1.5 },
+                      textShadowRadius: 3,
+                    },
+                  ]}
+                >
+                  {ov.text}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
       )}
     </Animated.View>
   );

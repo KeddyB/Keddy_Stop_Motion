@@ -1,5 +1,6 @@
 import { Frame } from './project';
 import { DoodleStroke } from './doodle';
+import { TextOverlay } from './textOverlay';
 
 export type HistoryAction =
   | {
@@ -26,4 +27,11 @@ export type HistoryAction =
       type: 'CLEAR_DOODLES';
       frameIndex: number;
       previousDoodles: DoodleStroke[];
+    }
+  | {
+      type: 'SET_TEXT_OVERLAYS';
+      frameIndex: number;
+      previousTextOverlays: TextOverlay[];
+      newTextOverlays: TextOverlay[];
     };
+
