@@ -66,30 +66,36 @@ const MainApp: React.FC = () => {
     checkFirstLaunch();
   }, []);
 
-  // 2. Listen for incoming shared images from Native Photos app
+  // 2. Listen for incoming shared images from Native Photos app or external apps
   useEffect(() => {
-    const handleUrl = (event: { url: string }) => {
-      const urls = shareIntentService.parseIncomingUrls(event.url);
-      if (urls.length > 0) {
-        setPendingSharedImages(urls);
+    let isMounted = true;
+
+    // Check initial shared media on cold launch
+    shareIntentService.getInitialSharedMedia().then((items) => {
+      if (isMounted && items.length > 0) {
+        const uris = items.map((i) => i.uri);
+        setPendingSharedImages(uris);
         setNewProjectModalVisible(true);
         setActiveTab('home');
         setActiveStudioProject(null);
       }
-    };
+    });
 
-    Linking.getInitialURL().then((url: string | null) => {
-      if (url) {
-        const urls = shareIntentService.parseIncomingUrls(url);
-        if (urls.length > 0) {
-          setPendingSharedImages(urls);
-          setNewProjectModalVisible(true);
-        }
+    // Listen for shared media while app is running
+    const unsubscribe = shareIntentService.addSharedMediaListener((items) => {
+      if (isMounted && items.length > 0) {
+        const uris = items.map((i) => i.uri);
+        setPendingSharedImages(uris);
+        setNewProjectModalVisible(true);
+        setActiveTab('home');
+        setActiveStudioProject(null);
       }
     });
 
-    const subscription = Linking.addEventListener('url', handleUrl);
-    return () => subscription.remove();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   // Request & Proceed Handler
@@ -138,33 +144,34 @@ const MainApp: React.FC = () => {
           stageMessage: 'Analyzing photo snap timestamps...',
         });
 
-        // 1. Resolve exact camera snap times for each shared photo
+        // 1. Resolve exact camera snap times for each shared photo concurrently in batches
+        const CONCURRENCY_LIMIT = 4;
         const assetsWithTime: Array<{ uri: string; snapTime: number }> = [];
-        for (let i = 0; i < totalShared; i++) {
-          const uri = data.sharedImageUris[i];
-          const snapTime = await photoTimestampHelper.getExactCaptureTime({ uri });
-          assetsWithTime.push({ uri, snapTime });
+
+        for (let i = 0; i < totalShared; i += CONCURRENCY_LIMIT) {
+          const chunk = data.sharedImageUris.slice(i, i + CONCURRENCY_LIMIT);
+          const chunkResults = await Promise.all(
+            chunk.map(async (uri) => ({
+              uri,
+              snapTime: await photoTimestampHelper.getExactCaptureTime({ uri }),
+            }))
+          );
+          assetsWithTime.push(...chunkResults);
         }
 
         // 2. Sort strictly chronologically by creation/snap time
         assetsWithTime.sort((a, b) => a.snapTime - b.snapTime);
 
         const framesDir = storageService.getProjectFramesDirectory(created.id);
-        const importedFrames: Frame[] = [];
+        const importedFrames: Frame[] = new Array(assetsWithTime.length);
+        let completedCount = 0;
 
-        // 3. Copy files to project frames folder with live progress
-        for (let i = 0; i < assetsWithTime.length; i++) {
-          const { uri, snapTime } = assetsWithTime[i];
-          const frameId = `shared_${snapTime}_${i}`;
+        // 3. Process frame copy, proxy generation with high-priority parallel worker pool
+        const processSharedItem = async (index: number) => {
+          const { uri, snapTime } = assetsWithTime[index];
+          const frameId = `shared_${snapTime}_${index}`;
           const targetPath = `${framesDir}${frameId}.jpg`;
           const proxyPath = `${framesDir}${frameId}_proxy.jpg`;
-
-          setImportLoadingState({
-            visible: true,
-            current: i + 1,
-            total: totalShared,
-            stageMessage: `Preparing frame ${i + 1} of ${totalShared}...`,
-          });
 
           if (FileSystem.documentDirectory) {
             await FileSystem.copyAsync({
@@ -172,7 +179,7 @@ const MainApp: React.FC = () => {
               to: targetPath,
             });
           }
-          
+
           let finalProxyUri = FileSystem.documentDirectory ? targetPath : uri;
 
           if (settings.proxyQuality !== 'original') {
@@ -192,12 +199,28 @@ const MainApp: React.FC = () => {
             }
           }
 
-          importedFrames.push({
+          importedFrames[index] = {
             id: frameId,
             uri: FileSystem.documentDirectory ? targetPath : uri,
             proxyUri: finalProxyUri,
             timestamp: snapTime,
-          });
+          };
+
+          completedCount++;
+          setImportLoadingState((prev) => ({
+            ...prev,
+            current: completedCount,
+            stageMessage: `Preparing frame ${completedCount} of ${totalShared}...`,
+          }));
+        };
+
+        // Run parallel worker pool
+        for (let i = 0; i < assetsWithTime.length; i += CONCURRENCY_LIMIT) {
+          const batch = [];
+          for (let j = i; j < Math.min(i + CONCURRENCY_LIMIT, assetsWithTime.length); j++) {
+            batch.push(processSharedItem(j));
+          }
+          await Promise.all(batch);
         }
 
         const durationSeconds = Number((importedFrames.length / data.fps).toFixed(1));

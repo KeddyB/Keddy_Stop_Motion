@@ -44,7 +44,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
     { mode: 'system', label: 'System', icon: 'phone-portrait-outline' },
   ];
 
-  const aspectRatios: AspectRatioOption[] = ['16:9', '9:16', '4:3', '1:1', '21:9'];
+  const aspectRatios: AspectRatioOption[] = ['16:9', '9:16', '4:3', '3:4', '21:9', '9:21', '1:1'];
 
   const fpsPresets = [1, 6, 8, 12, 15, 24, 30, 60];
 

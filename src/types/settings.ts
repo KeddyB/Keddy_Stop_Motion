@@ -1,6 +1,6 @@
 export type OrientationMode = 'portrait' | 'landscape';
 
-export type AspectRatioOption = '16:9' | '9:16' | '4:3' | '1:1' | '21:9';
+export type AspectRatioOption = '16:9' | '9:16' | '4:3' | '3:4' | '21:9' | '9:21' | '1:1';
 
 export type CropMode = 'aspect_ratio' | 'original_resolution';
 

@@ -40,8 +40,33 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const { theme, isDark } = useTheme();
   const { settings } = useAppSettings();
 
+  // Map between landscape and portrait equivalent ratios
+  const flipToPortraitRatio = (ratio: AspectRatioOption): AspectRatioOption => {
+    switch (ratio) {
+      case '16:9': return '9:16';
+      case '4:3': return '3:4';
+      case '21:9': return '9:21';
+      case '1:1': return '1:1';
+      default: return ratio;
+    }
+  };
+
+  const flipToLandscapeRatio = (ratio: AspectRatioOption): AspectRatioOption => {
+    switch (ratio) {
+      case '9:16': return '16:9';
+      case '3:4': return '4:3';
+      case '9:21': return '21:9';
+      case '1:1': return '1:1';
+      default: return ratio;
+    }
+  };
+
+  const isPortraitRatio = (ratio: AspectRatioOption): boolean => {
+    return ratio === '9:16' || ratio === '3:4' || ratio === '9:21';
+  };
+
   // Initialize with in-app default settings
-  const defaultIsPortrait = settings.defaultAspectRatio === '9:16';
+  const defaultIsPortrait = isPortraitRatio(settings.defaultAspectRatio);
   const [title, setTitle] = useState(`Animation #${nextIndex}`);
   const [orientation, setOrientation] = useState<OrientationMode>(
     defaultIsPortrait ? 'portrait' : 'landscape'
@@ -54,9 +79,9 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   // Sync with global settings when modal opens
   useEffect(() => {
     if (visible) {
-      const isPort = settings.defaultAspectRatio === '9:16';
+      const isPort = isPortraitRatio(settings.defaultAspectRatio);
       setOrientation(isPort ? 'portrait' : 'landscape');
-      setAspectRatio(settings.defaultAspectRatio || '16:9');
+      setAspectRatio(settings.defaultAspectRatio || (isPort ? '9:16' : '16:9'));
       setProjectFps(settings.playbackFps || 12);
       setTitle(`Animation #${nextIndex}`);
     }
@@ -65,9 +90,9 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const handleSelectOrientation = (mode: OrientationMode) => {
     setOrientation(mode);
     if (mode === 'landscape') {
-      setAspectRatio(settings.defaultAspectRatio !== '9:16' ? settings.defaultAspectRatio : '16:9');
+      setAspectRatio((prev) => flipToLandscapeRatio(prev));
     } else {
-      setAspectRatio('9:16');
+      setAspectRatio((prev) => flipToPortraitRatio(prev));
     }
   };
 
@@ -83,7 +108,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   };
 
   const landscapeRatios: AspectRatioOption[] = ['16:9', '4:3', '21:9', '1:1'];
-  const portraitRatios: AspectRatioOption[] = ['9:16', '4:3', '1:1'];
+  const portraitRatios: AspectRatioOption[] = ['9:16', '3:4', '9:21', '1:1'];
   const availableRatios = orientation === 'landscape' ? landscapeRatios : portraitRatios;
 
   const fpsOptions = [6, 8, 12, 15, 24, 30];

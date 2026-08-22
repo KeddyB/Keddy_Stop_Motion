@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -55,6 +55,142 @@ const BG_PILL_COLORS = [
 ];
 
 const PRESET_SIZES = [16, 22, 28, 36, 48, 60];
+
+interface DraggableTextItemProps {
+  overlay: TextOverlay;
+  isSelected: boolean;
+  stageDimensions: { width: number; height: number };
+  onSelect: (id: string) => void;
+  onUpdatePosition: (id: string, x: number, y: number) => void;
+}
+
+const DraggableTextItem: React.FC<DraggableTextItemProps> = ({
+  overlay,
+  isSelected,
+  stageDimensions,
+  onSelect,
+  onUpdatePosition,
+}) => {
+  const overlayRef = useRef(overlay);
+  overlayRef.current = overlay;
+
+  const stageDimensionsRef = useRef(stageDimensions);
+  stageDimensionsRef.current = stageDimensions;
+
+  const dragStartPos = useRef({ x: overlay.x, y: overlay.y });
+  const [isDragging, setIsDragging] = useState(false);
+  const [layout, setLayout] = useState({ width: 0, height: 0 });
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1,
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1,
+        onPanResponderGrant: () => {
+          setIsDragging(true);
+          onSelect(overlayRef.current.id);
+          dragStartPos.current = {
+            x: overlayRef.current.x,
+            y: overlayRef.current.y,
+          };
+        },
+        onPanResponderMove: (_, gestureState) => {
+          const width = stageDimensionsRef.current.width;
+          const height = stageDimensionsRef.current.height;
+          if (width <= 0 || height <= 0) return;
+
+          const deltaX = gestureState.dx / width;
+          const deltaY = gestureState.dy / height;
+          const newX = Math.max(0.05, Math.min(0.95, dragStartPos.current.x + deltaX));
+          const newY = Math.max(0.05, Math.min(0.95, dragStartPos.current.y + deltaY));
+          onUpdatePosition(overlayRef.current.id, newX, newY);
+        },
+        onPanResponderRelease: () => {
+          setIsDragging(false);
+        },
+        onPanResponderTerminate: () => {
+          setIsDragging(false);
+        },
+      }),
+    [onSelect, onUpdatePosition]
+  );
+
+  return (
+    <View
+      style={[
+        styles.textOverlayAnchor,
+        {
+          left: `${(overlay.x * 100).toFixed(2)}%` as any,
+          top: `${(overlay.y * 100).toFixed(2)}%` as any,
+          transform: [
+            { translateX: layout.width > 0 ? -layout.width / 2 : -50 },
+            { translateY: layout.height > 0 ? -layout.height / 2 : -20 },
+          ],
+        },
+      ]}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width > 0 && height > 0) {
+          setLayout({ width, height });
+        }
+      }}
+      {...panResponder.panHandlers}
+    >
+      <View
+        style={[
+          styles.textOverlayWrapper,
+          isSelected && styles.selectedOverlayWrapper,
+          isDragging && styles.draggingOverlayWrapper,
+        ]}
+      >
+        <View
+          style={[
+            styles.textContainerPill,
+            overlay.backgroundColor && overlay.backgroundColor !== 'transparent'
+              ? {
+                  backgroundColor: overlay.backgroundColor,
+                  paddingHorizontal: 12,
+                  paddingVertical: 5,
+                  borderRadius: 8,
+                }
+              : null,
+          ]}
+        >
+          <Text
+            style={[
+              styles.renderedText,
+              {
+                fontFamily: fontLoader.isFontLoaded(overlay.fontFamily)
+                  ? overlay.fontFamily
+                  : undefined,
+                fontSize: overlay.fontSize,
+                color: overlay.color,
+                textAlign: overlay.align || 'center',
+              },
+              overlay.shadow && styles.textShadowEffect,
+            ]}
+          >
+            {overlay.text || 'Text'}
+          </Text>
+        </View>
+
+        {/* Visual Drag Handles when Selected */}
+        {isSelected && (
+          <View style={styles.selectionBorder} pointerEvents="none">
+            <View style={[styles.cornerDot, styles.cornerTL]} />
+            <View style={[styles.cornerDot, styles.cornerTR]} />
+            <View style={[styles.cornerDot, styles.cornerBL]} />
+            <View style={[styles.cornerDot, styles.cornerBR]} />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
 
 export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
   frameUri,
@@ -126,6 +262,16 @@ export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
     );
   };
 
+  const handleUpdatePosition = useCallback((id: string, x: number, y: number) => {
+    setOverlays((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, x, y } : o))
+    );
+  }, []);
+
+  const handleSelectOverlay = useCallback((id: string) => {
+    setSelectedId(id);
+  }, []);
+
   const handleDeleteSelected = () => {
     if (!selectedId) return;
     const updated = overlays.filter((o) => o.id !== selectedId);
@@ -142,31 +288,6 @@ export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
     onSaveTextOverlays(overlays);
     onClose();
   };
-
-  // Dragging PanResponder for selected text overlay
-  const dragStartPos = useRef({ x: 0.5, y: 0.5 });
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        if (selectedOverlay) {
-          dragStartPos.current = { x: selectedOverlay.x, y: selectedOverlay.y };
-        }
-      },
-      onPanResponderMove: (
-        evt: GestureResponderEvent,
-        gestureState: PanResponderGestureState
-      ) => {
-        if (!selectedId || stageDimensions.width <= 0 || stageDimensions.height <= 0) return;
-        const deltaX = gestureState.dx / stageDimensions.width;
-        const deltaY = gestureState.dy / stageDimensions.height;
-        const newX = Math.max(0.05, Math.min(0.95, dragStartPos.current.x + deltaX));
-        const newY = Math.max(0.05, Math.min(0.95, dragStartPos.current.y + deltaY));
-        handleUpdateSelected({ x: newX, y: newY });
-      },
-    })
-  ).current;
 
   // Filter fonts by selected category
   const filteredFonts = APP_FONTS.filter(
@@ -524,75 +645,16 @@ export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
         )}
 
         {/* Render Text Overlays */}
-        {overlays.map((ov) => {
-          const isSelected = ov.id === selectedId;
-          return (
-            <View
-              key={ov.id}
-              style={[
-                styles.textOverlayAnchor,
-                {
-                  left: `${(ov.x * 100).toFixed(2)}%` as any,
-                  top: `${(ov.y * 100).toFixed(2)}%` as any,
-                },
-              ]}
-              pointerEvents="box-none"
-            >
-              <View
-                style={[
-                  styles.textOverlayWrapper,
-                  isSelected && styles.selectedOverlayWrapper,
-                ]}
-                {...(isSelected ? panResponder.panHandlers : {})}
-              >
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    setSelectedId(ov.id);
-                  }}
-                  style={[
-                    styles.textContainerPill,
-                    ov.backgroundColor && ov.backgroundColor !== 'transparent'
-                      ? {
-                          backgroundColor: ov.backgroundColor,
-                          paddingHorizontal: 12,
-                          paddingVertical: 5,
-                          borderRadius: 8,
-                        }
-                      : null,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.renderedText,
-                      {
-                        fontFamily: fontLoader.isFontLoaded(ov.fontFamily)
-                          ? ov.fontFamily
-                          : undefined,
-                        fontSize: ov.fontSize,
-                        color: ov.color,
-                        textAlign: ov.align || 'center',
-                      },
-                      ov.shadow && styles.textShadowEffect,
-                    ]}
-                  >
-                    {ov.text || 'Text'}
-                  </Text>
-                </Pressable>
-
-                {/* Visual Drag Handles when Selected */}
-                {isSelected && (
-                  <View style={styles.selectionBorder} pointerEvents="none">
-                    <View style={[styles.cornerDot, styles.cornerTL]} />
-                    <View style={[styles.cornerDot, styles.cornerTR]} />
-                    <View style={[styles.cornerDot, styles.cornerBL]} />
-                    <View style={[styles.cornerDot, styles.cornerBR]} />
-                  </View>
-                )}
-              </View>
-            </View>
-          );
-        })}
+        {overlays.map((ov) => (
+          <DraggableTextItem
+            key={ov.id}
+            overlay={ov}
+            isSelected={ov.id === selectedId}
+            stageDimensions={stageDimensions}
+            onSelect={handleSelectOverlay}
+            onUpdatePosition={handleUpdatePosition}
+          />
+        ))}
       </Pressable>
     </View>
   );
@@ -891,7 +953,6 @@ const styles = StyleSheet.create({
   },
   textOverlayAnchor: {
     position: 'absolute',
-    transform: [{ translateX: -50 }, { translateY: -50 }],
   },
   textOverlayWrapper: {
     alignItems: 'center',
@@ -899,6 +960,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   selectedOverlayWrapper: {},
+  draggingOverlayWrapper: {
+    opacity: 0.92,
+    transform: [{ scale: 1.04 }],
+  },
   textContainerPill: {},
   renderedText: {
     fontWeight: '600',

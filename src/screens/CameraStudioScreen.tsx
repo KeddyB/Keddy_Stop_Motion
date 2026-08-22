@@ -862,34 +862,43 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
         stageMessage: 'Analyzing photo capture timestamps...',
       });
 
-      // 1. Resolve exact snap times for each asset
+      // Pause audio if playing during heavy import
+      if (playerRef.current && isPlaying) {
+        try {
+          playerRef.current.pause();
+        } catch {}
+      }
+
+      // 1. Resolve exact snap times for each asset concurrently in batches (High Priority Worker Pool)
+      const CONCURRENCY_LIMIT = 4;
       const assetsWithTime: Array<{ asset: ImagePicker.ImagePickerAsset; snapTime: number }> = [];
-      for (let i = 0; i < totalAssets; i++) {
-        const asset = result.assets[i];
-        const snapTime = await photoTimestampHelper.getExactCaptureTime(asset);
-        assetsWithTime.push({ asset, snapTime });
+
+      for (let i = 0; i < totalAssets; i += CONCURRENCY_LIMIT) {
+        const chunk = result.assets.slice(i, i + CONCURRENCY_LIMIT);
+        const chunkResults = await Promise.all(
+          chunk.map(async (asset) => ({
+            asset,
+            snapTime: await photoTimestampHelper.getExactCaptureTime(asset),
+          }))
+        );
+        assetsWithTime.push(...chunkResults);
       }
 
       // 2. Sort strictly by photo capture timestamp (oldest first)
       assetsWithTime.sort((a, b) => a.snapTime - b.snapTime);
 
       const framesDir = storageService.getProjectFramesDirectory(project.id);
-      const importedFrames: Frame[] = [];
+      const importedFrames: Frame[] = new Array(assetsWithTime.length);
+      let completedCount = 0;
 
-      // 3. Copy files to project frames directory with live progress
-      for (let i = 0; i < assetsWithTime.length; i++) {
-        const { asset, snapTime } = assetsWithTime[i];
-        const frameId = `import_${snapTime}_${i}`;
+      // 3. Process frame crop, compression, and proxy generation with parallel execution
+      const processFrameItem = async (index: number) => {
+        const { asset, snapTime } = assetsWithTime[index];
+        const frameId = `import_${snapTime}_${index}`;
         const targetPath = `${framesDir}${frameId}.jpg`;
         const proxyPath = `${framesDir}${frameId}_proxy.jpg`;
 
-        setImportLoadingState((prev) => ({
-          ...prev,
-          current: i + 1,
-          stageMessage: `Preparing frame ${i + 1} of ${totalAssets}...`,
-        }));
-
-        // 1. Calculate Crop Rectangle to match targetAspectRatio for imported photo
+        // Calculate Crop Rectangle to match targetAspectRatio for imported photo
         const assetW = asset.width || 1920;
         const assetH = asset.height || 1080;
         const assetRatio = assetW / assetH;
@@ -953,12 +962,28 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
           }
         }
 
-        importedFrames.push({
+        importedFrames[index] = {
           id: frameId,
           uri: FileSystem.documentDirectory ? targetPath : savedResult.uri,
           proxyUri: finalProxyUri,
           timestamp: snapTime,
-        });
+        };
+
+        completedCount++;
+        setImportLoadingState((prev) => ({
+          ...prev,
+          current: completedCount,
+          stageMessage: `Preparing frame ${completedCount} of ${totalAssets}...`,
+        }));
+      };
+
+      // Run parallel worker pool
+      for (let i = 0; i < assetsWithTime.length; i += CONCURRENCY_LIMIT) {
+        const batch = [];
+        for (let j = i; j < Math.min(i + CONCURRENCY_LIMIT, assetsWithTime.length); j++) {
+          batch.push(processFrameItem(j));
+        }
+        await Promise.all(batch);
       }
 
       const updatedFrames = [...frames, ...importedFrames];
@@ -1575,17 +1600,19 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
               borderRadius: 12,
             }}
           >
-            {/* Native Camera Stream */}
+            {/* Native Camera Stream (Paused during imports for maximum CPU/GPU throughput) */}
             <View style={StyleSheet.absoluteFill}>
-              <CameraView
-                ref={cameraRef}
-                style={StyleSheet.absoluteFill}
-                facing={facing}
-                enableTorch={torch}
-                zoom={zoom}
-                autofocus={isAeAfLocked ? 'off' : 'on'}
-                responsiveOrientationWhenOrientationLocked={true}
-              />
+              {!importLoadingState.visible && (
+                <CameraView
+                  ref={cameraRef}
+                  style={StyleSheet.absoluteFill}
+                  facing={facing}
+                  enableTorch={torch}
+                  zoom={zoom}
+                  autofocus={isAeAfLocked ? 'off' : 'on'}
+                  responsiveOrientationWhenOrientationLocked={true}
+                />
+              )}
             </View>
 
             {/* Viewfinder Top-Corner Info Badges ("12fps LQ" section moved inside viewfinder) */}
