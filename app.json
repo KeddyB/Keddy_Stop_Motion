@@ -84,6 +84,7 @@
       "expo-audio",
       "expo-image",
       "./with-ffmpeg.js",
+      "./with-share-intent.js",
       "expo-splash-screen"
     ],
     "web": {
