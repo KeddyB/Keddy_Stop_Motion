@@ -25,6 +25,12 @@ import {
   AspectFitMode,
 } from '../types/settings';
 import { GlassSurface, GlassButton } from '../components/ui';
+import {
+  SelectedFolder,
+  getSavedExportFolder,
+  pickCustomExportFolder,
+  clearSavedExportFolder,
+} from '../utils/folderPicker';
 
 interface SettingsScreenProps {
   onReplaySplash: () => void;
@@ -35,6 +41,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
   const { settings, updateSetting, resetSettings } = useAppSettings();
   const { showAlert, showConfirm } = useCustomAlert();
   const insets = useAppInsets();
+
+  const [exportFolder, setExportFolder] = React.useState<SelectedFolder | null>(null);
+
+  React.useEffect(() => {
+    getSavedExportFolder().then(folder => {
+      if (folder) setExportFolder(folder);
+    });
+  }, []);
+
+  const handlePickExportFolder = async () => {
+    const picked = await pickCustomExportFolder();
+    if (picked) {
+      setExportFolder(picked);
+      showAlert({
+        title: 'Export Folder Set',
+        message: `Exported videos and animations will now be saved to "${picked.name}".`,
+      });
+    }
+  };
+
+  const handleResetExportFolder = async () => {
+    await clearSavedExportFolder();
+    setExportFolder(null);
+    showAlert({
+      title: 'Export Folder Reset',
+      message: 'Animations will now be saved to the default Photos & Gallery album ("Keddy Stop Motion").',
+    });
+  };
 
   const themeOptions: Array<{
     mode: 'dark' | 'light' | 'system';
@@ -912,7 +946,120 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
           </View>
         </View>
 
-        {/* 7. Splash Replay */}
+        {/* 9. Export & Save Destination */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>
+            DEFAULT EXPORT DESTINATION
+          </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                shadowColor: theme.cardShadow,
+              },
+            ]}
+          >
+            <View style={{ padding: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 12,
+                    backgroundColor: exportFolder
+                      ? isDark
+                        ? 'rgba(99,102,241,0.25)'
+                        : 'rgba(79,70,229,0.12)'
+                      : theme.surfaceSubtle,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Ionicons
+                    name={exportFolder ? 'folder-open' : 'images-outline'}
+                    size={20}
+                    color={exportFolder ? theme.primaryLight : theme.textMuted}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                    {exportFolder ? exportFolder.name : 'Default Photo Gallery'}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: theme.textMuted, marginTop: 2 }}>
+                    {exportFolder
+                      ? 'Rendered animations save to this custom folder'
+                      : 'Saved to "Keddy Stop Motion" album in Photos'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                <Pressable
+                  style={({ pressed }) => [
+                    {
+                      flex: 1,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: theme.primary,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transform: [{ scale: pressed ? 0.96 : 1 }],
+                    },
+                  ]}
+                  unstable_pressDelay={0}
+                  onPress={handlePickExportFolder}
+                >
+                  <Ionicons
+                    name={exportFolder ? 'pencil-outline' : 'folder-open-outline'}
+                    size={16}
+                    color="#FFFFFF"
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                    {exportFolder ? 'Change Folder' : 'Choose Custom Folder'}
+                  </Text>
+                </Pressable>
+
+                {exportFolder && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      {
+                        paddingHorizontal: 14,
+                        height: 40,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: theme.surfaceSubtle,
+                        transform: [{ scale: pressed ? 0.96 : 1 }],
+                      },
+                    ]}
+                    unstable_pressDelay={0}
+                    onPress={handleResetExportFolder}
+                  >
+                    <Ionicons
+                      name="refresh-outline"
+                      size={15}
+                      color={theme.textMuted}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={{ color: theme.textMuted, fontSize: 12, fontWeight: '700' }}>
+                      Reset to Default
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* 10. Splash Replay */}
         <View style={styles.section}>
           <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>
             BRANDING & SPLASH

@@ -61,9 +61,11 @@ export const videoExportService = {
     let successCount = 0;
     const errors: string[] = [];
 
-    const { status } = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video', 'audio']);
-    if (status !== 'granted') {
-      throw new Error('Photo & video library permission is required to save animations.');
+    if (!exportConfig.saveDirectoryUri) {
+      const { status } = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video', 'audio']);
+      if (status !== 'granted') {
+        throw new Error('Photo & video library permission is required to save animations.');
+      }
     }
 
     try {
@@ -135,6 +137,14 @@ export const videoExportService = {
 
         // --- IMAGE SEQUENCE EXPORT ---
         if (exportConfig.format === 'jpeg_sequence' || exportConfig.format === 'png_sequence') {
+          let rawBaseName = project.title || 'animation';
+          if (projects.length === 1 && exportConfig.customFileName?.trim()) {
+            rawBaseName = exportConfig.customFileName.trim();
+          } else if (projects.length > 1 && exportConfig.customFileName?.trim()) {
+            rawBaseName = `${exportConfig.customFileName.trim()}_${i + 1}`;
+          }
+          const sanitizedBaseName = rawBaseName.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_').trim() || `animation_${project.id.slice(-4)}`;
+
           for (let f = 0; f < frames.length; f++) {
             const frame = frames[f];
             let frameUriToSave = frame.uri;
@@ -149,16 +159,44 @@ export const videoExportService = {
               }
             }
 
-            const asset = await MediaLibrary.createAssetAsync(frameUriToSave);
-            try {
-              const album = await MediaLibrary.getAlbumAsync(albumName);
-              if (!album) {
-                await MediaLibrary.createAlbumAsync(albumName, asset, false);
-              } else {
-                await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+            if (exportConfig.saveDirectoryUri) {
+              const frameNum = String(f + 1).padStart(4, '0');
+              const frameFileName = `${sanitizedBaseName}_${frameNum}`;
+              const mimeType = exportConfig.format === 'png_sequence' ? 'image/png' : 'image/jpeg';
+              try {
+                const safUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                  exportConfig.saveDirectoryUri,
+                  frameFileName,
+                  mimeType
+                );
+                const base64Data = await FileSystem.readAsStringAsync(frameUriToSave, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+                await FileSystem.writeAsStringAsync(safUri, base64Data, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+              } catch (safErr) {
+                console.warn('SAF frame save fallback to media library:', safErr);
+                const asset = await MediaLibrary.createAssetAsync(frameUriToSave);
+                const album = await MediaLibrary.getAlbumAsync(albumName);
+                if (!album) {
+                  await MediaLibrary.createAlbumAsync(albumName, asset, false);
+                } else {
+                  await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+                }
               }
-            } catch (albumErr) {
-              console.log('Image album grouping notice:', albumErr);
+            } else {
+              const asset = await MediaLibrary.createAssetAsync(frameUriToSave);
+              try {
+                const album = await MediaLibrary.getAlbumAsync(albumName);
+                if (!album) {
+                  await MediaLibrary.createAlbumAsync(albumName, asset, false);
+                } else {
+                  await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+                }
+              } catch (albumErr) {
+                console.log('Image album grouping notice:', albumErr);
+              }
             }
 
             onProgress({
@@ -335,42 +373,73 @@ export const videoExportService = {
             totalProjects: projects.length,
             projectTitle: project.title,
             percent: 85,
-            stageMessage: 'Saving animation to photo library...',
+            stageMessage: exportConfig.saveDirectoryUri
+              ? 'Saving animation to selected folder...'
+              : 'Saving animation to photo library...',
           });
 
           const assetUri = outputFile.startsWith('file://') ? outputFile : `file://${outputFile}`;
           let savedSuccessfully = false;
           let asset: MediaLibrary.Asset | null = null;
 
-          try {
-            asset = await MediaLibrary.createAssetAsync(assetUri);
-            savedSuccessfully = true;
-          } catch (createErr) {
-            console.warn('createAssetAsync notice, trying saveToLibraryAsync:', createErr);
+          // 1. If user selected a custom folder, save directly to that folder via SAF
+          if (exportConfig.saveDirectoryUri) {
             try {
-              await MediaLibrary.saveToLibraryAsync(assetUri);
+              const mimeType = exportConfig.format === 'mp4_video' ? 'video/mp4' : 'image/gif';
+              const safUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                exportConfig.saveDirectoryUri,
+                sanitizedBaseName,
+                mimeType
+              );
+              const base64Data = await FileSystem.readAsStringAsync(assetUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              await FileSystem.writeAsStringAsync(safUri, base64Data, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
               savedSuccessfully = true;
-            } catch (saveErr) {
-              console.warn('saveToLibraryAsync fallback error:', saveErr);
+
+              // Best-effort gallery indexing
+              try {
+                asset = await MediaLibrary.createAssetAsync(assetUri);
+              } catch {}
+            } catch (safErr) {
+              console.warn('SAF custom folder write error, trying default library:', safErr);
             }
           }
 
-          if (asset) {
+          // 2. Default folder behavior: save directly to MediaLibrary photo gallery album
+          if (!savedSuccessfully) {
             try {
-              const targetAlbumName = exportConfig.format === 'mp4_video' ? 'Keddy Stop Motion Videos' : albumName;
-              const album = await MediaLibrary.getAlbumAsync(targetAlbumName);
-              if (!album) {
-                await MediaLibrary.createAlbumAsync(targetAlbumName, asset, false);
-              } else {
-                await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+              asset = await MediaLibrary.createAssetAsync(assetUri);
+              savedSuccessfully = true;
+            } catch (createErr) {
+              console.warn('createAssetAsync notice, trying saveToLibraryAsync:', createErr);
+              try {
+                await MediaLibrary.saveToLibraryAsync(assetUri);
+                savedSuccessfully = true;
+              } catch (saveErr) {
+                console.warn('saveToLibraryAsync fallback error:', saveErr);
               }
-            } catch (albumSyncErr) {
-              console.log('Video/GIF album grouping notice:', albumSyncErr);
+            }
+
+            if (asset) {
+              try {
+                const targetAlbumName = exportConfig.format === 'mp4_video' ? 'Keddy Stop Motion Videos' : albumName;
+                const album = await MediaLibrary.getAlbumAsync(targetAlbumName);
+                if (!album) {
+                  await MediaLibrary.createAlbumAsync(targetAlbumName, asset, false);
+                } else {
+                  await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+                }
+              } catch (albumSyncErr) {
+                console.log('Video/GIF album grouping notice:', albumSyncErr);
+              }
             }
           }
 
           if (!savedSuccessfully && !asset) {
-            throw new Error(`Failed to save exported animation to photo gallery.`);
+            throw new Error(`Failed to save exported animation.`);
           }
         }
 

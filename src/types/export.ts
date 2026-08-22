@@ -9,6 +9,8 @@ export interface ExportConfig {
   quality: ExportQuality;
   resolution: ExportResolution;
   customFileName?: string;
+  saveDirectoryUri?: string;
+  saveDirectoryName?: string;
 }
 
 export const DEFAULT_EXPORT_CONFIG: ExportConfig = {

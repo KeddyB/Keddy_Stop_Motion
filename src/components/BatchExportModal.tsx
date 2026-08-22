@@ -14,6 +14,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { RenderProgressUpdate } from '../services/videoExportService';
 import { ExportConfig, ExportFormat, ExportQuality, ExportResolution } from '../types/export';
+import {
+  SelectedFolder,
+  getSavedExportFolder,
+  pickCustomExportFolder,
+  clearSavedExportFolder,
+} from '../utils/folderPicker';
 
 interface BatchExportModalProps {
   visible: boolean;
@@ -44,6 +50,7 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
   const [format, setFormat] = useState<ExportFormat>('mp4_video');
   const [quality, setQuality] = useState<ExportQuality>('high');
   const [resolution, setResolution] = useState<ExportResolution>('original');
+  const [selectedFolder, setSelectedFolder] = useState<SelectedFolder | null>(null);
 
   React.useEffect(() => {
     if (defaultTitle) {
@@ -52,13 +59,16 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
   }, [defaultTitle]);
 
   React.useEffect(() => {
-    // Load saved settings
+    // Load saved settings & custom folder
     import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
       AsyncStorage.getItem('@keddy_export_format').then(val => val && setFormat(val as ExportFormat));
       AsyncStorage.getItem('@keddy_export_quality').then(val => val && setQuality(val as ExportQuality));
       AsyncStorage.getItem('@keddy_export_resolution').then(val => val && setResolution(val as ExportResolution));
     });
-  }, []);
+    getSavedExportFolder().then(folder => {
+      if (folder) setSelectedFolder(folder);
+    });
+  }, [visible]);
 
   const saveSetting = async (key: string, value: string) => {
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
@@ -68,6 +78,18 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
   const handleSetFormat = (f: ExportFormat) => { setFormat(f); saveSetting('@keddy_export_format', f); };
   const handleSetQuality = (q: ExportQuality) => { setQuality(q); saveSetting('@keddy_export_quality', q); };
   const handleSetResolution = (r: ExportResolution) => { setResolution(r); saveSetting('@keddy_export_resolution', r); };
+
+  const handlePickFolder = async () => {
+    const picked = await pickCustomExportFolder();
+    if (picked) {
+      setSelectedFolder(picked);
+    }
+  };
+
+  const handleResetFolder = async () => {
+    await clearSavedExportFolder();
+    setSelectedFolder(null);
+  };
 
   const formatOptions: Array<{ id: ExportFormat; label: string; icon: keyof typeof Ionicons.glyphMap; desc: string }> = [
     { id: 'jpeg_sequence', label: 'JPEG Sequence', icon: 'images-outline', desc: 'Standard photo gallery frame sequence' },
@@ -95,6 +117,8 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
       quality,
       resolution,
       customFileName: customName.trim() || undefined,
+      saveDirectoryUri: selectedFolder?.uri,
+      saveDirectoryName: selectedFolder?.name,
     });
   };
 
@@ -154,12 +178,14 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
 
               <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}>
                 {isComplete
-                  ? `Successfully rendered and saved ${successCount} of ${totalSelected} projects to your Photos Gallery.`
+                  ? selectedFolder
+                    ? `Successfully rendered and saved ${successCount} of ${totalSelected} projects directly to "${selectedFolder.name}".`
+                    : `Successfully rendered and saved ${successCount} of ${totalSelected} projects to your Photos Gallery.`
                   : isExporting
                   ? progress
                     ? `${progress.stageMessage || 'Processing...'} (${progress.projectIndex}/${progress.totalProjects})`
                     : 'Preparing high-resolution renders...'
-                  : 'Choose your preferred export format, quality, and resolution.'}
+                  : 'Choose your export destination, format, quality, and resolution.'}
               </Text>
 
               {/* Configuration View (Before Export Starts) */}
@@ -209,6 +235,97 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
                       </Text>
                     </View>
                   </View>
+
+                  {/* Save Destination / Folder Section */}
+                  <View style={styles.destinationHeaderRow}>
+                    <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+                      Save Location
+                    </Text>
+                    {selectedFolder && (
+                      <Pressable
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        onPress={handleResetFolder}
+                        style={styles.resetFolderBtn}
+                      >
+                        <Ionicons name="refresh-outline" size={12} color={theme.textMuted} />
+                        <Text style={[styles.resetFolderText, { color: theme.textMuted }]}>
+                          Default Gallery
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+
+                  <Pressable
+                    unstable_pressDelay={0}
+                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                    style={({ pressed }) => [
+                      styles.folderCard,
+                      {
+                        backgroundColor: selectedFolder ? 'rgba(99, 102, 241, 0.08)' : theme.surfaceSubtle,
+                        borderColor: selectedFolder ? theme.primaryLight : theme.border,
+                        transform: [{ scale: pressed ? 0.98 : 1 }],
+                      },
+                    ]}
+                    onPress={handlePickFolder}
+                  >
+                    <View
+                      style={[
+                        styles.folderIconBox,
+                        {
+                          backgroundColor: selectedFolder
+                            ? 'rgba(99, 102, 241, 0.18)'
+                            : theme.surfaceElevated,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={selectedFolder ? 'folder-open' : 'images-outline'}
+                        size={18}
+                        color={selectedFolder ? theme.primaryLight : theme.textMuted}
+                      />
+                    </View>
+
+                    <View style={styles.folderInfoCol}>
+                      <Text
+                        style={[
+                          styles.folderNameText,
+                          { color: selectedFolder ? theme.text : theme.text },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {selectedFolder ? selectedFolder.name : 'Default Photo Gallery'}
+                      </Text>
+                      <Text style={[styles.folderSubText, { color: theme.textMuted }]} numberOfLines={1}>
+                        {selectedFolder
+                          ? 'Saved directly to chosen folder'
+                          : 'Saved to Keddy Stop Motion album'}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.folderActionBadge,
+                        {
+                          backgroundColor: selectedFolder ? theme.primary : theme.surfaceElevated,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={selectedFolder ? 'pencil-outline' : 'folder-outline'}
+                        size={12}
+                        color={selectedFolder ? '#FFFFFF' : theme.text}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text
+                        style={[
+                          styles.folderActionBadgeText,
+                          { color: selectedFolder ? '#FFFFFF' : theme.text },
+                        ]}
+                      >
+                        {selectedFolder ? 'Change' : 'Choose'}
+                      </Text>
+                    </View>
+                  </Pressable>
 
                   {/* Format Section */}
                   <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 14 }]}>Export Format</Text>
@@ -505,6 +622,61 @@ const styles = StyleSheet.create({
   extBadgeText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  destinationHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  resetFolderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  resetFolderText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  folderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 10,
+    gap: 10,
+    marginBottom: 4,
+  },
+  folderIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  folderInfoCol: {
+    flex: 1,
+  },
+  folderNameText: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  folderSubText: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  folderActionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  folderActionBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   formatGrid: {
     flexDirection: 'row',
