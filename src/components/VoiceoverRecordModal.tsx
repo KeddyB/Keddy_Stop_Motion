@@ -23,6 +23,7 @@ import {
 } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useTheme } from '../theme/ThemeContext';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { Frame, AudioTrack } from '../types/project';
 import { storageService } from '../services/storageService';
 import { GlassSurface, GlassButton } from './ui';
@@ -45,6 +46,7 @@ export const VoiceoverRecordModal: React.FC<VoiceoverRecordModalProps> = ({
   onSaveVoiceover,
 }) => {
   const { theme } = useTheme();
+  const { showAlert } = useCustomAlert();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isLandscape = windowWidth > windowHeight;
 
@@ -199,7 +201,11 @@ export const VoiceoverRecordModal: React.FC<VoiceoverRecordModalProps> = ({
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Microphone Access Needed', 'Please allow microphone access to record voiceovers.');
+        showAlert({
+          title: 'Microphone Access Needed',
+          message: 'Please allow microphone access to record voiceovers.',
+          destructive: true,
+        });
         return;
       }
 
@@ -259,7 +265,11 @@ export const VoiceoverRecordModal: React.FC<VoiceoverRecordModalProps> = ({
       }
     } catch (e) {
       console.warn('Record start error:', e);
-      Alert.alert('Recording Failed', 'Could not start recording.');
+      showAlert({
+        title: 'Recording Failed',
+        message: 'Could not start recording.',
+        destructive: true,
+      });
       setRecordState('idle');
       clearAllTimers();
     }
@@ -273,7 +283,11 @@ export const VoiceoverRecordModal: React.FC<VoiceoverRecordModalProps> = ({
       const outputUri = recorder.uri;
 
       if (!outputUri) {
-        Alert.alert('No Audio', 'No audio was recorded.');
+        showAlert({
+          title: 'No Audio',
+          message: 'No audio was recorded.',
+          destructive: true,
+        });
         setRecordState('idle');
         return;
       }
@@ -364,7 +378,11 @@ export const VoiceoverRecordModal: React.FC<VoiceoverRecordModalProps> = ({
     } catch (e) {
       setIsSaving(false);
       console.warn('Save audio error:', e);
-      Alert.alert('Error', 'Failed to save voiceover track.');
+      showAlert({
+        title: 'Error',
+        message: 'Failed to save voiceover track.',
+        destructive: true,
+      });
     }
   };
 

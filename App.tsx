@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -8,6 +9,7 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { SettingsProvider, useAppSettings } from './src/context/SettingsContext';
 import { ProjectsProvider, useProjects } from './src/context/ProjectsContext';
+import { CustomAlertProvider, useCustomAlert } from './src/context/CustomAlertContext';
 import { SplashScreen } from './src/components/SplashScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -17,6 +19,7 @@ import { LiquidGlassTabBar, TabKey } from './src/components/LiquidGlassTabBar';
 import { NewProjectModal } from './src/components/NewProjectModal';
 import { ImportLoadingModal } from './src/components/ImportLoadingModal';
 import { PermissionPromptModal } from './src/components/PermissionPromptModal';
+import { GlassSurface } from './src/components/ui';
 import { permissionService } from './src/services/permissionService';
 import { storageService } from './src/services/storageService';
 import { shareIntentService } from './src/services/shareIntentService';
@@ -28,6 +31,7 @@ const MainApp: React.FC = () => {
   const { isDark, theme } = useTheme();
   const { projects, createProject, refreshProjects, updateProject } = useProjects();
   const { settings } = useAppSettings();
+  const { showAlert } = useCustomAlert();
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('home');
@@ -35,6 +39,8 @@ const MainApp: React.FC = () => {
   const [pendingStudioProject, setPendingStudioProject] = useState<StopMotionProject | null>(null);
   const [activeStudioProject, setActiveStudioProject] = useState<StopMotionProject | null>(null);
   const [pendingSharedImages, setPendingSharedImages] = useState<string[]>([]);
+  const [incomingStudioDropUris, setIncomingStudioDropUris] = useState<string[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [newProjectModalVisible, setNewProjectModalVisible] = useState(false);
   const [isHomeSelectionMode, setIsHomeSelectionMode] = useState(false);
 
@@ -74,10 +80,14 @@ const MainApp: React.FC = () => {
     shareIntentService.getInitialSharedMedia().then((items) => {
       if (isMounted && items.length > 0) {
         const uris = items.map((i) => i.uri);
-        setPendingSharedImages(uris);
-        setNewProjectModalVisible(true);
-        setActiveTab('home');
-        setActiveStudioProject(null);
+        if (activeStudioProject) {
+          setIncomingStudioDropUris(uris);
+        } else {
+          setPendingSharedImages(uris);
+          setNewProjectModalVisible(true);
+          setActiveTab('home');
+          setActiveStudioProject(null);
+        }
       }
     });
 
@@ -85,10 +95,15 @@ const MainApp: React.FC = () => {
     const unsubscribe = shareIntentService.addSharedMediaListener((items) => {
       if (isMounted && items.length > 0) {
         const uris = items.map((i) => i.uri);
-        setPendingSharedImages(uris);
-        setNewProjectModalVisible(true);
-        setActiveTab('home');
-        setActiveStudioProject(null);
+        if (activeStudioProject) {
+          // If project is currently open in studio, append directly to active project
+          setIncomingStudioDropUris(uris);
+        } else {
+          // If on home/settings, open new project modal
+          setPendingSharedImages(uris);
+          setNewProjectModalVisible(true);
+          setActiveTab('home');
+        }
       }
     });
 
@@ -96,7 +111,87 @@ const MainApp: React.FC = () => {
       isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [activeStudioProject]);
+
+  // 3. Desktop / Web / Tablet Drag and Drop Event Listeners
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    let dragCounter = 0;
+
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        setIsDragOver(true);
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        setIsDragOver(false);
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter = 0;
+      setIsDragOver(false);
+
+      if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        if (
+          file.type.startsWith('image/') ||
+          /\.(jpe?g|png|webp|bmp|gif|heic|heif)$/i.test(file.name)
+        ) {
+          imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      const uris = imageFiles.map((file) => URL.createObjectURL(file));
+
+      if (activeStudioProject) {
+        // Appends photos directly to the active studio project
+        setIncomingStudioDropUris(uris);
+      } else {
+        // Opens new project modal with dropped photos preloaded
+        setPendingSharedImages(uris);
+        setNewProjectModalVisible(true);
+        setActiveTab('home');
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [activeStudioProject]);
 
   // Request & Proceed Handler
   const handleGrantPermissions = async () => {
@@ -241,7 +336,11 @@ const MainApp: React.FC = () => {
       }
     } catch (e) {
       setImportLoadingState({ visible: false, current: 0, total: 0 });
-      Alert.alert('Storage Error', 'Failed to save new project to device storage.');
+      showAlert({
+        title: 'Storage Error',
+        message: 'Failed to save new project to device storage.',
+        destructive: true,
+      });
     }
   };
 
@@ -256,9 +355,12 @@ const MainApp: React.FC = () => {
       {activeStudioProject ? (
         <CameraStudioScreen
           project={activeStudioProject}
+          incomingDroppedUris={incomingStudioDropUris}
+          onClearIncomingDroppedUris={() => setIncomingStudioDropUris([])}
           onClose={() => {
             refreshProjects();
             setActiveStudioProject(null);
+            setIncomingStudioDropUris([]);
           }}
           onUpdateProject={(updated) => {
             setActiveStudioProject(updated);
@@ -345,6 +447,31 @@ const MainApp: React.FC = () => {
         total={importLoadingState.total}
         stageMessage={importLoadingState.stageMessage}
       />
+
+      {/* Full-Screen Drag and Drop Visual Feedback Overlay */}
+      {isDragOver && (
+        <View style={styles.dragOverOverlay} pointerEvents="none">
+          <GlassSurface
+            variant="elevated"
+            borderRadius={28}
+            contentStyle={styles.dragOverContent}
+          >
+            <View style={[styles.dragOverIconBg, { backgroundColor: theme.primary }]}>
+              <Ionicons name="images" size={44} color="#FFFFFF" />
+            </View>
+            <Text style={[styles.dragOverTitle, { color: theme.text }]}>
+              {activeStudioProject
+                ? 'Drop Photos to Add Frames'
+                : 'Drop Photos to Start Animation'}
+            </Text>
+            <Text style={[styles.dragOverSubtitle, { color: theme.textMuted }]}>
+              {activeStudioProject
+                ? `Adding directly to "${activeStudioProject.title}"`
+                : 'Instantly start a new stop motion project'}
+            </Text>
+          </GlassSurface>
+        </View>
+      )}
     </View>
   );
 };
@@ -355,7 +482,9 @@ export default function App() {
       <ThemeProvider>
         <SettingsProvider>
           <ProjectsProvider>
-            <MainApp />
+            <CustomAlertProvider>
+              <MainApp />
+            </CustomAlertProvider>
           </ProjectsProvider>
         </SettingsProvider>
       </ThemeProvider>
@@ -378,5 +507,54 @@ const styles = StyleSheet.create({
   },
   hiddenScreen: {
     display: 'none',
+  },
+  dragOverOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 9999,
+  },
+  dragOverContent: {
+    paddingVertical: 36,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 320,
+    maxWidth: 460,
+    borderWidth: 2,
+    borderColor: 'rgba(99, 102, 241, 0.6)',
+    borderStyle: 'dashed',
+    borderRadius: 28,
+  },
+  dragOverIconBg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  dragOverTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: -0.3,
+    marginBottom: 8,
+  },
+  dragOverSubtitle: {
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 21,
   },
 });

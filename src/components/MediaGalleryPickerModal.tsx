@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { useTheme } from '../theme/ThemeContext';
 import { useAppInsets } from '../utils/useAppInsets';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { GlassSurface, GlassButton } from './ui';
 
 export interface MediaGalleryPickerModalProps {
@@ -32,6 +33,7 @@ export const MediaGalleryPickerModal: React.FC<MediaGalleryPickerModalProps> = (
   const { theme, isDark } = useTheme();
   const insets = useAppInsets();
   const { width, height } = useWindowDimensions();
+  const { showAlert } = useCustomAlert();
 
   // Media Library state
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -131,7 +133,11 @@ export const MediaGalleryPickerModal: React.FC<MediaGalleryPickerModalProps> = (
       setEndCursor(result.endCursor);
     } catch (e) {
       console.warn('Failed to load initial assets:', e);
-      Alert.alert('Gallery Error', 'Could not load images from device gallery.');
+      showAlert({
+        title: 'Gallery Error',
+        message: 'Could not load images from device gallery.',
+        destructive: true,
+      });
     } finally {
       setIsLoading(false);
     }

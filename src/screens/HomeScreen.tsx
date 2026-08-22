@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { useAppInsets } from '../utils/useAppInsets';
 import { useProjects } from '../context/ProjectsContext';
-import { storageService } from '../services/storageService';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { Header } from '../components/Header';
 import { ProjectCard } from '../components/ProjectCard';
 import { BatchExportModal } from '../components/BatchExportModal';
@@ -44,6 +44,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const insets = useAppInsets();
   const { width } = useWindowDimensions();
   const { projects, deleteProject, duplicateProject, updateProject } = useProjects();
+  const { showAlert, showConfirm } = useCustomAlert();
 
   // Dynamic responsive column count for side-by-side projects layout (up to 5 columns on 14"+ laptops/tablets)
   const numColumns =
@@ -93,50 +94,52 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   const handleDeleteProject = (id: string) => {
-    Alert.alert(
-      'Delete Project',
-      'Are you sure you want to permanently delete this project and all its recorded frames from your device?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteProject(id);
-            } catch (e) {
-              Alert.alert('Error', 'Failed to remove project from device.');
-            }
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Delete Project',
+      message: 'Are you sure you want to permanently delete this project and all its recorded frames from your device?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      icon: 'trash-outline',
+      onConfirm: async () => {
+        try {
+          await deleteProject(id);
+        } catch (e) {
+          showAlert({
+            title: 'Error',
+            message: 'Failed to remove project from device.',
+            destructive: true,
+          });
+        }
+      },
+    });
   };
 
   // Batch Delete Selected Projects
   const handleBatchDelete = () => {
     if (selectedIds.length === 0) return;
-    Alert.alert(
-      'Delete Selected Projects',
-      `Are you sure you want to delete ${selectedIds.length} project(s)? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              for (const id of selectedIds) {
-                await deleteProject(id);
-              }
-              exitSelectionMode();
-            } catch (e) {
-              Alert.alert('Error', 'Failed to delete selected projects.');
-            }
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Delete Selected Projects',
+      message: `Are you sure you want to permanently delete ${selectedIds.length} project(s)? This cannot be undone.`,
+      confirmText: 'Delete All',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      icon: 'trash-outline',
+      onConfirm: async () => {
+        try {
+          for (const id of selectedIds) {
+            await deleteProject(id);
+          }
+          exitSelectionMode();
+        } catch (e) {
+          showAlert({
+            title: 'Error',
+            message: 'Failed to delete selected projects.',
+            destructive: true,
+          });
+        }
+      },
+    });
   };
 
   const handleOpenExportModal = () => {
@@ -165,12 +168,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       setIsExporting(false);
 
       if (errors.length > 0 && successCount === 0) {
-        Alert.alert('Export Notice', errors.join('\n'));
+        showAlert({
+          title: 'Export Notice',
+          message: errors.join('\n'),
+        });
       }
     } catch (err: any) {
       setIsExporting(false);
       setShowExportModal(false);
-      Alert.alert('Export Failed', err.message || 'Could not export animations.');
+      showAlert({
+        title: 'Export Failed',
+        message: err.message || 'Could not export animations.',
+        destructive: true,
+      });
     }
   };
 

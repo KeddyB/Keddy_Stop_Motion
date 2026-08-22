@@ -15,6 +15,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../theme/ThemeContext';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { Frame } from '../types/project';
 import { storageService } from '../services/storageService';
 import { GlassSurface } from './ui';
@@ -42,6 +43,7 @@ export const SmearModal: React.FC<SmearModalProps> = ({
   onInsertSmearFrame,
 }) => {
   const { theme } = useTheme();
+  const { showAlert } = useCustomAlert();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isLandscape = windowWidth > windowHeight;
 
@@ -119,7 +121,11 @@ export const SmearModal: React.FC<SmearModalProps> = ({
     } catch (e) {
       setIsGenerating(false);
       console.warn('Smear generation error:', e);
-      Alert.alert('Error', 'Could not generate smear frame.');
+      showAlert({
+        title: 'Error',
+        message: 'Could not generate smear frame.',
+        destructive: true,
+      });
     }
   };
 

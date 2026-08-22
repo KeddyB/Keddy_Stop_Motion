@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { useAppSettings } from '../context/SettingsContext';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { useAppInsets } from '../utils/useAppInsets';
 import {
   AspectRatioOption,
@@ -32,6 +33,7 @@ interface SettingsScreenProps {
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }) => {
   const { theme, isDark, activeSchemeMode, setScheme } = useTheme();
   const { settings, updateSetting, resetSettings } = useAppSettings();
+  const { showAlert, showConfirm } = useCustomAlert();
   const insets = useAppInsets();
 
   const themeOptions: Array<{
@@ -54,7 +56,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
   const handleSaveCustomFps = () => {
     const parsed = parseInt(customFpsInput, 10);
     if (isNaN(parsed) || parsed < 1 || parsed > 60) {
-      Alert.alert('Invalid FPS', 'Please enter a valid frame rate between 1 and 60 FPS.');
+      showAlert({
+        title: 'Invalid FPS',
+        message: 'Please enter a valid frame rate between 1 and 60 FPS.',
+        destructive: true,
+      });
       return;
     }
     updateSetting('playbackFps', parsed);
@@ -62,21 +68,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onReplaySplash }
   };
 
   const handleReset = () => {
-    Alert.alert(
-      'Reset Settings',
-      'Are you sure you want to restore all settings to their original factory defaults?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset to Defaults',
-          style: 'destructive',
-          onPress: () => {
-            resetSettings();
-            Alert.alert('Settings Reset', 'All settings have been restored to defaults.');
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Reset Settings',
+      message: 'Are you sure you want to restore all settings to their original factory defaults?',
+      confirmText: 'Reset to Defaults',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      icon: 'refresh-circle-outline',
+      onConfirm: () => {
+        resetSettings();
+        showAlert({
+          title: 'Settings Reset',
+          message: 'All settings have been restored to defaults.',
+        });
+      },
+    });
   };
 
   const getFpsDescription = (fps: number) => {

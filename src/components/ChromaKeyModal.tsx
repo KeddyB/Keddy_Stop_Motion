@@ -8,12 +8,12 @@ import {
   ScrollView,
   Switch,
   TouchableWithoutFeedback,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../theme/ThemeContext';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { GlassSurface, GlassButton } from './ui';
 
 export interface ChromaKeyConfig {
@@ -46,7 +46,7 @@ const PRESET_BACKDROPS = [
     uri: 'https://images.unsplash.com/photo-1448375240586-882707db888b?w=800&auto=format&fit=crop&q=80',
   },
   {
-    id: 'city',
+    id: 'cyber',
     title: 'Cyber Skyline',
     uri: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=800&auto=format&fit=crop&q=80',
   },
@@ -64,6 +64,7 @@ export const ChromaKeyModal: React.FC<ChromaKeyModalProps> = ({
   onChangeConfig,
 }) => {
   const { theme } = useTheme();
+  const { showAlert } = useCustomAlert();
 
   const handlePickCustomBackdrop = async () => {
     try {
@@ -84,7 +85,11 @@ export const ChromaKeyModal: React.FC<ChromaKeyModalProps> = ({
       });
     } catch (e) {
       console.warn('Pick backdrop error:', e);
-      Alert.alert('Error', 'Failed to select backdrop image.');
+      showAlert({
+        title: 'Error',
+        message: 'Failed to select backdrop image.',
+        destructive: true,
+      });
     }
   };
 

@@ -45,6 +45,7 @@ import {
 import Animated from 'react-native-reanimated';
 import { useTheme } from '../theme/ThemeContext';
 import { useAppSettings } from '../context/SettingsContext';
+import { useCustomAlert } from '../context/CustomAlertContext';
 import { orientationHelper } from '../utils/orientationHelper';
 import { storageService } from '../services/storageService';
 import { StopMotionProject, Frame, AudioTrack } from '../types/project';
@@ -99,17 +100,22 @@ interface CameraStudioScreenProps {
   project: StopMotionProject;
   onClose: () => void;
   onUpdateProject: (updated: StopMotionProject) => void;
+  incomingDroppedUris?: string[];
+  onClearIncomingDroppedUris?: () => void;
 }
 
 export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   project,
   onClose,
   onUpdateProject,
+  incomingDroppedUris,
+  onClearIncomingDroppedUris,
 }) => {
   const { theme } = useTheme();
   const { settings } = useAppSettings();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
+  const { showAlert, showConfirm } = useCustomAlert();
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -292,6 +298,14 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       }
     };
   }, [project.orientation]);
+
+  // Handle Dropped Images / External Shared Media into Active Studio Project
+  useEffect(() => {
+    if (incomingDroppedUris && incomingDroppedUris.length > 0) {
+      handleProcessImportedAssets(incomingDroppedUris.map((uri) => ({ uri })));
+      onClearIncomingDroppedUris?.();
+    }
+  }, [incomingDroppedUris]);
 
   // Universal Hardware & Gesture Back Handler
   useEffect(() => {
@@ -671,7 +685,11 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       await syncProjectChanges(updatedFrames);
     } catch (e) {
       console.warn('Capture error:', e);
-      Alert.alert('Capture Error', 'Failed to capture frame from camera.');
+      showAlert({
+        title: 'Capture Error',
+        message: 'Failed to capture frame from camera.',
+        destructive: true,
+      });
     } finally {
       setIsCapturing(false);
     }
@@ -746,25 +764,22 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
 
   const handleBatchDelete = () => {
     if (selectedFrameIds.length === 0) return;
-    Alert.alert(
-      'Delete Selected Frames',
-      `Are you sure you want to delete ${selectedFrameIds.length} selected frame(s)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            const remaining = frames.filter((f) => !selectedFrameIds.includes(f.id));
-            setFrames(remaining);
-            setSelectedFrameIds([]);
-            setIsMultiSelect(false);
-            setActiveFrameIndex(Math.max(0, remaining.length - 1));
-            syncProjectChanges(remaining);
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Delete Selected Frames',
+      message: `Are you sure you want to delete ${selectedFrameIds.length} selected frame(s)?`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      icon: 'trash-outline',
+      onConfirm: () => {
+        const remaining = frames.filter((f) => !selectedFrameIds.includes(f.id));
+        setFrames(remaining);
+        setSelectedFrameIds([]);
+        setIsMultiSelect(false);
+        setActiveFrameIndex(Math.max(0, remaining.length - 1));
+        syncProjectChanges(remaining);
+      },
+    });
   };
 
   const handleBatchDuplicate = () => {
@@ -838,10 +853,17 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       setIsExportComplete(true);
 
       if (errors.length > 0) {
-        Alert.alert('Export Notice', errors.join('\n'));
+        showAlert({
+          title: 'Export Notice',
+          message: errors.join('\n'),
+        });
       }
     } catch (e: any) {
-      Alert.alert('Export Failed', e.message || 'An error occurred during export.');
+      showAlert({
+        title: 'Export Failed',
+        message: e.message || 'An error occurred during export.',
+        destructive: true,
+      });
     } finally {
       setIsExporting(false);
     }
@@ -1009,13 +1031,16 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
         },
       ]);
       setRedoStack([]);
-
       await syncProjectChanges(updatedFrames);
       setImportLoadingState({ visible: false, current: 0, total: 0 });
     } catch (e: any) {
       setImportLoadingState({ visible: false, current: 0, total: 0 });
       console.warn('Import error:', e);
-      Alert.alert('Import Failed', e.message || 'Could not import images from device storage.');
+      showAlert({
+        title: 'Import Failed',
+        message: e.message || 'Could not import images from device storage.',
+        destructive: true,
+      });
     }
   };
 
@@ -1047,10 +1072,17 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
 
       setAudioTrack(newAudioTrack);
       await syncProjectChanges(frames, undefined, newAudioTrack);
-      Alert.alert('Audio Synced', `Synced "${asset.name}" with animation playback.`);
+      showAlert({
+        title: 'Audio Synced',
+        message: `Synced "${asset.name}" with animation playback.`,
+      });
     } catch (e) {
       console.warn('Audio pick error:', e);
-      Alert.alert('Audio Error', 'Failed to load audio file.');
+      showAlert({
+        title: 'Audio Error',
+        message: 'Failed to load audio file.',
+        destructive: true,
+      });
     }
   };
 
@@ -1062,41 +1094,37 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   // 6. Duplicate All Frames (Hold on 2s)
   const handleDuplicateAllOn2s = () => {
     if (frames.length === 0) return;
-    Alert.alert(
-      'Hold on 2s (Duplicate All)',
-      `Duplicate all ${frames.length} frames so each drawing/photo holds for 2 frames? (Total will become ${frames.length * 2} frames)`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Duplicate All on 2s',
-          onPress: () => {
-            const duplicated: Frame[] = [];
-            frames.forEach((f, idx) => {
-              duplicated.push(f);
-              duplicated.push({
-                ...f,
-                id: `${f.id}_dup_${idx}_${Date.now()}`,
-                doodles: f.doodles ? [...f.doodles] : undefined,
-                textOverlays: f.textOverlays ? [...f.textOverlays] : undefined,
-              });
-            });
+    showConfirm({
+      title: 'Hold on 2s (Duplicate All)',
+      message: `Duplicate all ${frames.length} frames so each drawing/photo holds for 2 frames? (Total will become ${frames.length * 2} frames)`,
+      confirmText: 'Duplicate All on 2s',
+      cancelText: 'Cancel',
+      icon: 'copy-outline',
+      onConfirm: () => {
+        const duplicated: Frame[] = [];
+        frames.forEach((f, idx) => {
+          duplicated.push(f);
+          duplicated.push({
+            ...f,
+            id: `${f.id}_dup_${idx}_${Date.now()}`,
+            doodles: f.doodles ? [...f.doodles] : undefined,
+            textOverlays: f.textOverlays ? [...f.textOverlays] : undefined,
+          });
+        });
 
-            setUndoStack((prev) => [
-              ...prev,
-              {
-                type: 'DUPLICATE_ALL',
-                previousFrames: frames,
-                newFrames: duplicated,
-              },
-            ]);
-            setRedoStack([]);
-
-            setFrames(duplicated);
-            syncProjectChanges(duplicated);
+        setUndoStack((prev) => [
+          ...prev,
+          {
+            type: 'DUPLICATE_ALL',
+            previousFrames: frames,
+            newFrames: duplicated,
           },
-        },
-      ]
-    );
+        ]);
+        setRedoStack([]);
+        setFrames(duplicated);
+        syncProjectChanges(duplicated);
+      },
+    });
   };
 
   // 7. Duplicate Single Frame
@@ -1304,30 +1332,27 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
   // Reverse Sequence
   const handleReverseFrames = () => {
     if (frames.length < 2) return;
-    Alert.alert(
-      'Reverse All Frames',
-      'Do you want to reverse the order of all captured frames in this animation?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reverse',
-          onPress: () => {
-            const reversed = [...frames].reverse();
-            setUndoStack((prev) => [
-              ...prev,
-              {
-                type: 'DUPLICATE_ALL',
-                previousFrames: frames,
-                newFrames: reversed,
-              },
-            ]);
-            setRedoStack([]);
-            setFrames(reversed);
-            syncProjectChanges(reversed);
+    showConfirm({
+      title: 'Reverse All Frames',
+      message: 'Do you want to reverse the order of all captured frames in this animation?',
+      confirmText: 'Reverse',
+      cancelText: 'Cancel',
+      icon: 'swap-horizontal-outline',
+      onConfirm: () => {
+        const reversed = [...frames].reverse();
+        setUndoStack((prev) => [
+          ...prev,
+          {
+            type: 'DUPLICATE_ALL',
+            previousFrames: frames,
+            newFrames: reversed,
           },
-        },
-      ]
-    );
+        ]);
+        setRedoStack([]);
+        setFrames(reversed);
+        syncProjectChanges(reversed);
+      },
+    });
   };
 
   // 11. Undo & Redo Handlers
