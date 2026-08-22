@@ -258,45 +258,71 @@ const MainApp: React.FC = () => {
         assetsWithTime.sort((a, b) => a.snapTime - b.snapTime);
 
         const framesDir = storageService.getProjectFramesDirectory(created.id);
+        if (FileSystem.documentDirectory) {
+          try {
+            await FileSystem.makeDirectoryAsync(framesDir, { intermediates: true });
+          } catch {}
+        }
+
         const importedFrames: Frame[] = new Array(assetsWithTime.length);
         let completedCount = 0;
 
-        // 3. Process frame copy, proxy generation with high-priority parallel worker pool
-        const processSharedItem = async (index: number) => {
+        // 3. Process frame copy and proxy generation sequentially for maximum stability & zero coroutine cancellation
+        for (let index = 0; index < assetsWithTime.length; index++) {
           const { uri, snapTime } = assetsWithTime[index];
           const frameId = `shared_${snapTime}_${index}`;
           const targetPath = `${framesDir}${frameId}.jpg`;
           const proxyPath = `${framesDir}${frameId}_proxy.jpg`;
 
-          if (FileSystem.documentDirectory) {
-            await FileSystem.copyAsync({
-              from: uri,
-              to: targetPath,
-            });
-          }
+          let savedUri = targetPath;
+          let finalProxyUri = targetPath;
 
-          let finalProxyUri = FileSystem.documentDirectory ? targetPath : uri;
-
-          if (settings.proxyQuality !== 'original') {
-            const proxyWidth = settings.proxyQuality === 'high' ? 1080 : settings.proxyQuality === 'medium' ? 720 : 480;
-            const manipContext = ImageManipulator.manipulate(uri);
-            manipContext.resize({ width: proxyWidth });
-            const imageRef = await manipContext.renderAsync();
-            const proxyResult = await imageRef.saveAsync({ compress: 0.5, format: SaveFormat.JPEG });
+          try {
             if (FileSystem.documentDirectory) {
               await FileSystem.copyAsync({
-                from: proxyResult.uri,
-                to: proxyPath,
+                from: uri,
+                to: targetPath,
               });
-              finalProxyUri = proxyPath;
+              savedUri = targetPath;
             } else {
-              finalProxyUri = proxyResult.uri;
+              savedUri = uri;
             }
+
+            finalProxyUri = savedUri;
+
+            // Generate Proxy if needed
+            if (settings.proxyQuality !== 'original' && FileSystem.documentDirectory) {
+              try {
+                const isLandscape = data.orientation === 'landscape';
+                const maxDimension = settings.proxyQuality === 'high' ? 1440 : settings.proxyQuality === 'medium' ? 1080 : 720;
+                const manipContext = ImageManipulator.manipulate(savedUri);
+                if (isLandscape) {
+                  manipContext.resize({ width: maxDimension });
+                } else {
+                  manipContext.resize({ height: maxDimension });
+                }
+                const imageRef = await manipContext.renderAsync();
+                const proxyResult = await imageRef.saveAsync({ compress: 0.88, format: SaveFormat.JPEG });
+
+                await FileSystem.copyAsync({
+                  from: proxyResult.uri,
+                  to: proxyPath,
+                });
+                finalProxyUri = proxyPath;
+              } catch (pErr) {
+                console.warn('Proxy generation notice for shared photo:', pErr);
+                finalProxyUri = savedUri;
+              }
+            }
+          } catch (copyErr) {
+            console.error('Fatal copy error for shared frame:', copyErr);
+            savedUri = uri;
+            finalProxyUri = uri;
           }
 
           importedFrames[index] = {
             id: frameId,
-            uri: FileSystem.documentDirectory ? targetPath : uri,
+            uri: savedUri,
             proxyUri: finalProxyUri,
             timestamp: snapTime,
           };
@@ -307,15 +333,6 @@ const MainApp: React.FC = () => {
             current: completedCount,
             stageMessage: `Preparing frame ${completedCount} of ${totalShared}...`,
           }));
-        };
-
-        // Run parallel worker pool
-        for (let i = 0; i < assetsWithTime.length; i += CONCURRENCY_LIMIT) {
-          const batch = [];
-          for (let j = i; j < Math.min(i + CONCURRENCY_LIMIT, assetsWithTime.length); j++) {
-            batch.push(processSharedItem(j));
-          }
-          await Promise.all(batch);
         }
 
         const durationSeconds = Number((importedFrames.length / data.fps).toFixed(1));

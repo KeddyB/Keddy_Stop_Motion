@@ -134,6 +134,55 @@ export const videoExportService = {
         }
 
         const fps = project.fps || 12;
+        const framesDir = storageService.getProjectFramesDirectory(project.id);
+
+        // Strictly resolve original master full-resolution files (never proxy files)
+        const resolveMasterFrameUri = async (frame: Frame): Promise<string | null> => {
+          // 1. If frame.uri is clean and not a proxy, test if it exists
+          if (frame.uri && !frame.uri.includes('_proxy')) {
+            try {
+              const info = await FileSystem.getInfoAsync(frame.uri);
+              if (info.exists) return frame.uri;
+            } catch {}
+          }
+
+          // 2. If frame.uri had _proxy in it, try the master non-proxy path
+          if (frame.uri && frame.uri.includes('_proxy')) {
+            const masterPath = frame.uri.replace('_proxy.jpg', '.jpg').replace('_proxy.png', '.png').replace('_proxy.jpeg', '.jpeg');
+            try {
+              const mInfo = await FileSystem.getInfoAsync(masterPath);
+              if (mInfo.exists) return masterPath;
+            } catch {}
+          }
+
+          // 3. Try standard master filename in project frames folder on disk
+          if (FileSystem.documentDirectory) {
+            const cleanFilename = frame.id ? `${frame.id}.jpg` : (frame.uri ? frame.uri.split('/').pop()?.replace('_proxy.jpg', '.jpg') : null);
+            if (cleanFilename) {
+              const candidatePath = `${framesDir}${cleanFilename}`;
+              try {
+                const cInfo = await FileSystem.getInfoAsync(candidatePath);
+                if (cInfo.exists) return candidatePath;
+              } catch {}
+            }
+          }
+
+          // 4. Fallback to frame.uri or proxyUri if master cannot be found
+          if (frame.uri) {
+            try {
+              const uInfo = await FileSystem.getInfoAsync(frame.uri);
+              if (uInfo.exists) return frame.uri;
+            } catch {}
+          }
+          if (frame.proxyUri) {
+            try {
+              const pInfo = await FileSystem.getInfoAsync(frame.proxyUri);
+              if (pInfo.exists) return frame.proxyUri;
+            } catch {}
+          }
+
+          return null;
+        };
 
         // --- IMAGE SEQUENCE EXPORT ---
         if (exportConfig.format === 'jpeg_sequence' || exportConfig.format === 'png_sequence') {
@@ -147,15 +196,20 @@ export const videoExportService = {
 
           for (let f = 0; f < frames.length; f++) {
             const frame = frames[f];
-            let frameUriToSave = frame.uri;
+            const resolvedMasterUri = await resolveMasterFrameUri(frame);
+            if (!resolvedMasterUri) {
+              console.warn(`Skipping missing frame ${f + 1} during sequence export.`);
+              continue;
+            }
+            let frameUriToSave = resolvedMasterUri;
 
             if (exportConfig.format === 'png_sequence' && FileSystem.documentDirectory) {
               const pngTarget = `${FileSystem.documentDirectory}cache_render_${project.id}_${f}.png`;
               try {
-                await FileSystem.copyAsync({ from: frame.uri, to: pngTarget });
+                await FileSystem.copyAsync({ from: resolvedMasterUri, to: pngTarget });
                 frameUriToSave = pngTarget;
               } catch {
-                frameUriToSave = frame.uri;
+                frameUriToSave = resolvedMasterUri;
               }
             }
 
@@ -221,42 +275,12 @@ export const videoExportService = {
             stageMessage: 'Staging full-resolution original frames...',
           });
 
-          // Strictly resolve original full-resolution files first (never proxies)
+          // Strictly resolve original master full-resolution files (never proxies)
           const validFrameUris: string[] = [];
-          const framesDir = storageService.getProjectFramesDirectory(project.id);
 
           for (let f = 0; f < frames.length; f++) {
             const frame = frames[f];
-            let resolvedUri: string | null = null;
-
-            // 1. Check primary original capture URI
-            if (frame.uri) {
-              try {
-                const info = await FileSystem.getInfoAsync(frame.uri);
-                if (info.exists) resolvedUri = frame.uri;
-              } catch {}
-            }
-
-            // 2. Check current project directory by original filename
-            if (!resolvedUri && FileSystem.documentDirectory) {
-              const filename = frame.uri ? frame.uri.split('/').pop() : `${frame.id}.jpg`;
-              if (filename) {
-                const candidatePath = `${framesDir}${filename}`;
-                try {
-                  const cInfo = await FileSystem.getInfoAsync(candidatePath);
-                  if (cInfo.exists) resolvedUri = candidatePath;
-                } catch {}
-              }
-            }
-
-            // 3. Fallback to proxy URI ONLY if original was physically deleted
-            if (!resolvedUri && frame.proxyUri) {
-              try {
-                const pInfo = await FileSystem.getInfoAsync(frame.proxyUri);
-                if (pInfo.exists) resolvedUri = frame.proxyUri;
-              } catch {}
-            }
-
+            const resolvedUri = await resolveMasterFrameUri(frame);
             if (resolvedUri) {
               validFrameUris.push(resolvedUri);
             }

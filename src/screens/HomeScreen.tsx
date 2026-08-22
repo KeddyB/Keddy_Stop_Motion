@@ -58,6 +58,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ? 2
       : 1;
 
+  // Exact card width calculation so individual/orphan projects maintain their exact grid slot width
+  const contentWidth = Math.min(width, 1920) - 40; // 20px padding on each side (styles.content)
+  const gridGap = 16;
+  const cardWidth =
+    numColumns > 1
+      ? Math.floor((contentWidth - (numColumns - 1) * gridGap) / numColumns)
+      : undefined;
+
   // Multi-Select State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -292,6 +300,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           renderItem={({ item }) => (
             <ProjectCard
               project={item}
+              cardWidth={cardWidth}
               onPress={() => {
                 updateProject({ ...item, lastModified: 'Just now' });
                 onOpenStudio(item);
@@ -476,6 +485,7 @@ const styles = StyleSheet.create({
   },
   columnWrapper: {
     gap: 16,
+    justifyContent: 'flex-start',
   },
   emptyState: {
     alignItems: 'center',

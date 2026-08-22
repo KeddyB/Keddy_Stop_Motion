@@ -14,6 +14,7 @@ interface ProjectCardProps {
   isSelected?: boolean;
   onToggleSelect?: (id: string) => void;
   onLongPress?: (project: StopMotionProject) => void;
+  cardWidth?: number;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -25,6 +26,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   isSelected,
   onToggleSelect,
   onLongPress,
+  cardWidth,
 }) => {
   const { theme } = useTheme();
   const isPortrait = project.orientation === 'portrait';
@@ -47,7 +49,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         else if (onToggleSelect) onToggleSelect(project.id);
       }}
       style={({ pressed }) => [
-        { flex: 1, marginBottom: 16 },
+        {
+          flex: cardWidth ? undefined : 1,
+          width: cardWidth,
+          maxWidth: cardWidth,
+          marginBottom: 16,
+        },
         { opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
       ]}
     >

@@ -61,6 +61,22 @@ export const MediaGalleryPickerModal: React.FC<MediaGalleryPickerModalProps> = (
     return (width - totalSpacing) / numColumns;
   }, [width, numColumns]);
 
+  // Slide-to-Select State & Refs
+  const [isDragSelecting, setIsDragSelecting] = useState<boolean>(false);
+  const isDragSelectingRef = useRef<boolean>(false);
+  const dragStartIndexRef = useRef<number | null>(null);
+  const dragTargetActionRef = useRef<'select' | 'deselect'>('select');
+  const lastTargetIndexRef = useRef<number | null>(null);
+  const initialSelectedSnapshotRef = useRef<Set<string>>(new Set());
+  const lastTouchCoordsRef = useRef<{ pageX: number; pageY: number }>({ pageX: 0, pageY: 0 });
+
+  const gridContainerRef = useRef<View>(null);
+  const flatListRef = useRef<FlatList<MediaLibrary.Asset>>(null);
+  const gridLayoutRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
+  const scrollOffsetRef = useRef<number>(0);
+  const autoScrollTimerRef = useRef<any>(null);
+  const autoScrollDirectionRef = useRef<number>(0);
+
   // Request & verify permissions on modal show
   useEffect(() => {
     if (!visible) return;
@@ -91,13 +107,213 @@ export const MediaGalleryPickerModal: React.FC<MediaGalleryPickerModalProps> = (
     checkPermissionAndLoad();
   }, [visible]);
 
-  // Reset selection when modal closes
+  // Reset selection and gesture when modal closes
   useEffect(() => {
     if (!visible) {
       setSelectedAssetsMap(new Map());
       setShowAlbumDropdown(false);
+      isDragSelectingRef.current = false;
+      setIsDragSelecting(false);
+      dragStartIndexRef.current = null;
+      if (autoScrollTimerRef.current) {
+        clearInterval(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = null;
+      }
     }
   }, [visible]);
+
+  // Measure grid container position
+  const handleMeasureGrid = useCallback(() => {
+    if (gridContainerRef.current) {
+      gridContainerRef.current.measure((_x, _y, w, h, pageX, pageY) => {
+        if (w > 0 && h > 0) {
+          gridLayoutRef.current = { x: pageX, y: pageY, width: w, height: h };
+        }
+      });
+    }
+  }, []);
+
+  // Compute item index from screen coordinates
+  const getIndexFromCoordinates = useCallback(
+    (pageX: number, pageY: number): number | null => {
+      if (assets.length === 0) return null;
+      const { x, y, width: gridW } = gridLayoutRef.current;
+      const effectiveGridW = gridW || width;
+      const relX = Math.max(0, Math.min(effectiveGridW - 1, pageX - (x || 0)));
+      const relY = pageY - (y || 0) + scrollOffsetRef.current;
+
+      if (relY < 0) return 0;
+      const colWidth = effectiveGridW / numColumns;
+      const col = Math.floor(relX / colWidth);
+      const row = Math.floor(relY / itemSize);
+
+      if (col < 0 || col >= numColumns) return null;
+      const targetIndex = row * numColumns + col;
+      if (targetIndex < 0) return 0;
+      if (targetIndex >= assets.length) return assets.length - 1;
+      return targetIndex;
+    },
+    [assets.length, numColumns, itemSize, width]
+  );
+
+  // Apply range selection between drag start and current hover index
+  const applyRangeSelection = useCallback(
+    (fromIdx: number, toIdx: number, action: 'select' | 'deselect') => {
+      const minIdx = Math.min(fromIdx, toIdx);
+      const maxIdx = Math.max(fromIdx, toIdx);
+      const snapshot = initialSelectedSnapshotRef.current;
+
+      setSelectedAssetsMap((prev) => {
+        const next = new Map(prev);
+
+        // Reset all items to snapshot state first
+        assets.forEach((asset) => {
+          if (snapshot.has(asset.id)) {
+            if (!next.has(asset.id)) {
+              next.set(asset.id, { asset, order: 0 });
+            }
+          } else {
+            next.delete(asset.id);
+          }
+        });
+
+        // Apply range action
+        for (let i = minIdx; i <= maxIdx; i++) {
+          const asset = assets[i];
+          if (!asset) continue;
+
+          if (action === 'select') {
+            if (!next.has(asset.id)) {
+              next.set(asset.id, { asset, order: 0 });
+            }
+          } else {
+            next.delete(asset.id);
+          }
+        }
+
+        // Re-index orders sequentially
+        let orderCounter = 1;
+        const reindexed = new Map<string, { asset: MediaLibrary.Asset; order: number }>();
+        for (const [key, val] of next.entries()) {
+          reindexed.set(key, { asset: val.asset, order: orderCounter++ });
+        }
+
+        return reindexed;
+      });
+    },
+    [assets]
+  );
+
+  // Auto-scroll loop when finger is held near top or bottom edge
+  const startAutoScroll = useCallback(() => {
+    if (autoScrollTimerRef.current) return;
+
+    autoScrollTimerRef.current = setInterval(() => {
+      if (!isDragSelectingRef.current || autoScrollDirectionRef.current === 0) return;
+
+      const delta = autoScrollDirectionRef.current * 18;
+      const newOffset = Math.max(0, scrollOffsetRef.current + delta);
+      scrollOffsetRef.current = newOffset;
+
+      flatListRef.current?.scrollToOffset({ offset: newOffset, animated: false });
+
+      // Re-evaluate index with updated scroll offset
+      const { pageX, pageY } = lastTouchCoordsRef.current;
+      const targetIndex = getIndexFromCoordinates(pageX, pageY);
+      if (
+        targetIndex !== null &&
+        dragStartIndexRef.current !== null &&
+        targetIndex !== lastTargetIndexRef.current
+      ) {
+        lastTargetIndexRef.current = targetIndex;
+        applyRangeSelection(
+          dragStartIndexRef.current,
+          targetIndex,
+          dragTargetActionRef.current
+        );
+      }
+    }, 25);
+  }, [getIndexFromCoordinates, applyRangeSelection]);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollTimerRef.current) {
+      clearInterval(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+    autoScrollDirectionRef.current = 0;
+  }, []);
+
+  // Initiate Drag Selection on Long Press
+  const handleStartDragSelect = useCallback(
+    (index: number) => {
+      const asset = assets[index];
+      if (!asset) return;
+
+      isDragSelectingRef.current = true;
+      setIsDragSelecting(true);
+      dragStartIndexRef.current = index;
+      lastTargetIndexRef.current = index;
+
+      const isAlreadySelected = selectedAssetsMap.has(asset.id);
+      const action = isAlreadySelected ? 'deselect' : 'select';
+      dragTargetActionRef.current = action;
+
+      // Save initial selection snapshot before drag begins
+      initialSelectedSnapshotRef.current = new Set(selectedAssetsMap.keys());
+
+      applyRangeSelection(index, index, action);
+      startAutoScroll();
+    },
+    [assets, selectedAssetsMap, applyRangeSelection, startAutoScroll]
+  );
+
+  // Continuous touch move tracking during drag selection
+  const handleTouchMove = useCallback(
+    (e: any) => {
+      if (!isDragSelectingRef.current || dragStartIndexRef.current === null) return;
+
+      const { pageX, pageY } = e.nativeEvent;
+      lastTouchCoordsRef.current = { pageX, pageY };
+
+      // Check for top/bottom edge auto-scrolling
+      const { y, height: gridH } = gridLayoutRef.current;
+      const topEdge = y + 75;
+      const bottomEdge = y + (gridH || height) - 95;
+
+      if (pageY < topEdge) {
+        autoScrollDirectionRef.current = -1;
+      } else if (pageY > bottomEdge) {
+        autoScrollDirectionRef.current = 1;
+      } else {
+        autoScrollDirectionRef.current = 0;
+      }
+
+      const targetIndex = getIndexFromCoordinates(pageX, pageY);
+      if (
+        targetIndex !== null &&
+        targetIndex !== lastTargetIndexRef.current
+      ) {
+        lastTargetIndexRef.current = targetIndex;
+        applyRangeSelection(
+          dragStartIndexRef.current,
+          targetIndex,
+          dragTargetActionRef.current
+        );
+      }
+    },
+    [getIndexFromCoordinates, applyRangeSelection, height]
+  );
+
+  // Touch Release: Finalize drag selection
+  const handleTouchEnd = useCallback(() => {
+    if (isDragSelectingRef.current) {
+      isDragSelectingRef.current = false;
+      setIsDragSelecting(false);
+      dragStartIndexRef.current = null;
+      lastTargetIndexRef.current = null;
+      stopAutoScroll();
+    }
+  }, [stopAutoScroll]);
 
   // Load device albums
   const loadAlbums = async () => {
@@ -401,73 +617,97 @@ export const MediaGalleryPickerModal: React.FC<MediaGalleryPickerModalProps> = (
         )}
 
         {/* Asset Photo Grid */}
+        {/* Asset Photo Grid Container with Gesture Tracking */}
         {!isLoading && hasPermission && (
-          <FlatList
-            key={numColumns}
-            data={assets}
-            numColumns={numColumns}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[
-              styles.gridContent,
-              { paddingBottom: insets.bottom + 90 },
-            ]}
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
-            ListEmptyComponent={
-              <View style={styles.emptyGridContainer}>
-                <Ionicons name="image-outline" size={48} color={theme.textSubtle} />
-                <Text style={[styles.emptyGridText, { color: theme.textMuted }]}>
-                  No photos found in this album.
-                </Text>
+          <View
+            ref={gridContainerRef}
+            onLayout={handleMeasureGrid}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+            style={styles.gridWrapper}
+          >
+            {isDragSelecting && (
+              <View style={[styles.dragSelectPill, { top: insets.top + 8 }]}>
+                <Ionicons name="hand-left" size={14} color="#FFFFFF" />
+                <Text style={styles.dragSelectPillText}>Slide across photos to select</Text>
               </View>
-            }
-            ListFooterComponent={
-              isLoadingMore ? (
-                <View style={styles.footerLoading}>
-                  <ActivityIndicator size="small" color={theme.primary} />
+            )}
+
+            <FlatList
+              ref={flatListRef}
+              key={numColumns}
+              data={assets}
+              numColumns={numColumns}
+              keyExtractor={(item) => item.id}
+              scrollEventThrottle={16}
+              onScroll={(e) => {
+                scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+              }}
+              contentContainerStyle={[
+                styles.gridContent,
+                { paddingBottom: insets.bottom + 90 },
+              ]}
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.5}
+              ListEmptyComponent={
+                <View style={styles.emptyGridContainer}>
+                  <Ionicons name="image-outline" size={48} color={theme.textSubtle} />
+                  <Text style={[styles.emptyGridText, { color: theme.textMuted }]}>
+                    No photos found in this album.
+                  </Text>
                 </View>
-              ) : null
-            }
-            renderItem={({ item }) => {
-              const selectedInfo = selectedAssetsMap.get(item.id);
-              const isSelected = !!selectedInfo;
+              }
+              ListFooterComponent={
+                isLoadingMore ? (
+                  <View style={styles.footerLoading}>
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  </View>
+                ) : null
+              }
+              renderItem={({ item, index }) => {
+                const selectedInfo = selectedAssetsMap.get(item.id);
+                const isSelected = !!selectedInfo;
 
-              return (
-                <Pressable
-                  unstable_pressDelay={0}
-                  onPress={() => handleToggleSelect(item)}
-                  style={[
-                    styles.thumbnailItem,
-                    {
-                      width: itemSize,
-                      height: itemSize,
-                    },
-                  ]}
-                >
-                  <Image
-                    source={{ uri: item.uri }}
-                    style={StyleSheet.absoluteFill}
-                    resizeMode="cover"
-                  />
+                return (
+                  <Pressable
+                    unstable_pressDelay={0}
+                    delayLongPress={160}
+                    onPress={() => handleToggleSelect(item)}
+                    onLongPress={() => handleStartDragSelect(index)}
+                    style={[
+                      styles.thumbnailItem,
+                      {
+                        width: itemSize,
+                        height: itemSize,
+                      },
+                    ]}
+                  >
+                    <Image
+                      source={{ uri: item.uri }}
+                      style={StyleSheet.absoluteFill}
+                      resizeMode="cover"
+                    />
 
-                  {/* Selection Overlay & Badge */}
-                  {isSelected && (
-                    <View style={styles.selectedOverlay}>
-                      <View style={[styles.orderBadge, { backgroundColor: theme.primary }]}>
-                        <Text style={styles.orderBadgeText}>{selectedInfo.order}</Text>
+                    {/* Selection Overlay & Badge */}
+                    {isSelected && (
+                      <View style={styles.selectedOverlay}>
+                        <View style={[styles.orderBadge, { backgroundColor: theme.primary }]}>
+                          <Text style={styles.orderBadgeText}>{selectedInfo.order}</Text>
+                        </View>
                       </View>
-                    </View>
-                  )}
+                    )}
 
-                  {!isSelected && (
-                    <View style={styles.unselectedBadgeOutline}>
-                      <View style={styles.unselectedInnerCircle} />
-                    </View>
-                  )}
-                </Pressable>
-              );
-            }}
-          />
+                    {!isSelected && (
+                      <View style={styles.unselectedBadgeOutline}>
+                        <View style={styles.unselectedInnerCircle} />
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              }}
+            />
+          </View>
         )}
 
         {/* Floating Bottom Action Bar */}
@@ -602,6 +842,32 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  gridWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  dragSelectPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 90,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(99, 102, 241, 0.92)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  dragSelectPillText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   gridContent: {
     padding: 1,

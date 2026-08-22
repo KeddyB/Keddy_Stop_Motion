@@ -620,22 +620,28 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       let finalProxyUri = FileSystem.documentDirectory ? targetPath : fullResult.uri;
 
       // Generate Proxy if needed
-      if (settings.proxyQuality !== 'original') {
-        const proxyWidth = settings.proxyQuality === 'high' ? 1080 : settings.proxyQuality === 'medium' ? 720 : 480;
-        const proxyManip = ImageManipulator.manipulate(fullResult.uri);
-        proxyManip.resize({ width: proxyWidth });
-        const proxyImageRef = await proxyManip.renderAsync();
-        const proxyResult = await proxyImageRef.saveAsync({ compress: 0.5, format: SaveFormat.JPEG });
+      if (settings.proxyQuality !== 'original' && FileSystem.documentDirectory) {
+        try {
+          const isLandscape = project.orientation === 'landscape';
+          const maxDimension = settings.proxyQuality === 'high' ? 1440 : settings.proxyQuality === 'medium' ? 1080 : 720;
+          const proxyManip = ImageManipulator.manipulate(targetPath);
+          if (isLandscape) {
+            proxyManip.resize({ width: maxDimension });
+          } else {
+            proxyManip.resize({ height: maxDimension });
+          }
+          const proxyImageRef = await proxyManip.renderAsync();
+          const proxyResult = await proxyImageRef.saveAsync({ compress: 0.88, format: SaveFormat.JPEG });
 
-        if (FileSystem.documentDirectory) {
           await FileSystem.makeDirectoryAsync(framesDir, { intermediates: true });
           await FileSystem.copyAsync({
             from: proxyResult.uri,
             to: proxyPath,
           });
           finalProxyUri = proxyPath;
-        } else {
-          finalProxyUri = proxyResult.uri;
+        } catch (pErr) {
+          console.warn('Proxy generation fallback to master frame:', pErr);
+          finalProxyUri = targetPath;
         }
       }
 
@@ -921,83 +927,134 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
       assetsWithTime.sort((a, b) => a.snapTime - b.snapTime);
 
       const framesDir = storageService.getProjectFramesDirectory(project.id);
+      if (FileSystem.documentDirectory) {
+        try {
+          await FileSystem.makeDirectoryAsync(framesDir, { intermediates: true });
+        } catch {}
+      }
+
       const importedFrames: Frame[] = new Array(assetsWithTime.length);
       let completedCount = 0;
 
-      // 3. Process frame crop, compression, and proxy generation with parallel execution
-      const processFrameItem = async (index: number) => {
+      // 3. Process frame crop, compression, and proxy generation sequentially for maximum stability & zero coroutine cancellation
+      for (let index = 0; index < assetsWithTime.length; index++) {
         const { asset, snapTime } = assetsWithTime[index];
         const frameId = `import_${snapTime}_${index}`;
         const targetPath = `${framesDir}${frameId}.jpg`;
         const proxyPath = `${framesDir}${frameId}_proxy.jpg`;
 
-        // Calculate Crop Rectangle to match targetAspectRatio for imported photo
-        const assetW = asset.width || 1920;
-        const assetH = asset.height || 1080;
-        const assetRatio = assetW / assetH;
-        const targetRatio = targetAspectRatio;
+        let savedUri = targetPath;
+        let finalProxyUri = targetPath;
 
-        let cropOriginX = 0;
-        let cropOriginY = 0;
-        let cropW = assetW;
-        let cropH = assetH;
+        try {
+          // Calculate Crop Rectangle to match targetAspectRatio for imported photo
+          const assetW = asset.width || 1920;
+          const assetH = asset.height || 1080;
+          const assetRatio = assetW / assetH;
+          const targetRatio = targetAspectRatio;
+          const needsCrop = Math.abs(assetRatio - targetRatio) > 0.01;
 
-        if (Math.abs(assetRatio - targetRatio) > 0.01) {
-          if (assetRatio > targetRatio) {
-            cropH = assetH;
-            cropW = Math.round(assetH * targetRatio);
-            cropOriginX = Math.round((assetW - cropW) / 2);
-            cropOriginY = 0;
-          } else {
-            cropW = assetW;
-            cropH = Math.round(assetW / targetRatio);
-            cropOriginX = 0;
-            cropOriginY = Math.round((assetH - cropH) / 2);
-          }
-        }
+          if (needsCrop) {
+            let cropOriginX = 0;
+            let cropOriginY = 0;
+            let cropW = assetW;
+            let cropH = assetH;
 
-        const importManip = ImageManipulator.manipulate(asset.uri);
-        if (Math.abs(assetRatio - targetRatio) > 0.01) {
-          importManip.crop({
-            originX: cropOriginX,
-            originY: cropOriginY,
-            width: cropW,
-            height: cropH,
-          });
-        }
-        const rendered = await importManip.renderAsync();
-        const savedResult = await rendered.saveAsync({ compress: 0.92, format: SaveFormat.JPEG });
+            if (assetRatio > targetRatio) {
+              cropH = assetH;
+              cropW = Math.round(assetH * targetRatio);
+              cropOriginX = Math.round((assetW - cropW) / 2);
+              cropOriginY = 0;
+            } else {
+              cropW = assetW;
+              cropH = Math.round(assetW / targetRatio);
+              cropOriginX = 0;
+              cropOriginY = Math.round((assetH - cropH) / 2);
+            }
 
-        if (FileSystem.documentDirectory) {
-          await FileSystem.copyAsync({
-            from: savedResult.uri,
-            to: targetPath,
-          });
-        }
-
-        let finalProxyUri = FileSystem.documentDirectory ? targetPath : savedResult.uri;
-
-        if (settings.proxyQuality !== 'original') {
-          const proxyWidth = settings.proxyQuality === 'high' ? 1080 : settings.proxyQuality === 'medium' ? 720 : 480;
-          const proxyManip = ImageManipulator.manipulate(savedResult.uri);
-          proxyManip.resize({ width: proxyWidth });
-          const imageRef = await proxyManip.renderAsync();
-          const proxyResult = await imageRef.saveAsync({ compress: 0.5, format: SaveFormat.JPEG });
-
-          if (FileSystem.documentDirectory) {
-            await FileSystem.copyAsync({
-              from: proxyResult.uri,
-              to: proxyPath,
+            const importManip = ImageManipulator.manipulate(asset.uri);
+            importManip.crop({
+              originX: cropOriginX,
+              originY: cropOriginY,
+              width: cropW,
+              height: cropH,
             });
-            finalProxyUri = proxyPath;
+            const rendered = await importManip.renderAsync();
+            const savedResult = await rendered.saveAsync({ compress: 0.92, format: SaveFormat.JPEG });
+
+            if (FileSystem.documentDirectory) {
+              await FileSystem.copyAsync({
+                from: savedResult.uri,
+                to: targetPath,
+              });
+              savedUri = targetPath;
+            } else {
+              savedUri = savedResult.uri;
+            }
           } else {
-            finalProxyUri = proxyResult.uri;
+            // Direct copy for identical aspect ratio - fast and 0 memory overhead
+            if (FileSystem.documentDirectory) {
+              await FileSystem.copyAsync({
+                from: asset.uri,
+                to: targetPath,
+              });
+              savedUri = targetPath;
+            } else {
+              savedUri = asset.uri;
+            }
+          }
+
+          finalProxyUri = savedUri;
+
+          // Generate Proxy if needed
+          if (settings.proxyQuality !== 'original' && FileSystem.documentDirectory) {
+            try {
+              const isLandscape = project.orientation === 'landscape';
+              const maxDimension = settings.proxyQuality === 'high' ? 1440 : settings.proxyQuality === 'medium' ? 1080 : 720;
+              const proxyManip = ImageManipulator.manipulate(savedUri);
+              if (isLandscape) {
+                proxyManip.resize({ width: maxDimension });
+              } else {
+                proxyManip.resize({ height: maxDimension });
+              }
+              const imageRef = await proxyManip.renderAsync();
+              const proxyResult = await imageRef.saveAsync({ compress: 0.88, format: SaveFormat.JPEG });
+
+              await FileSystem.copyAsync({
+                from: proxyResult.uri,
+                to: proxyPath,
+              });
+              finalProxyUri = proxyPath;
+            } catch (pErr) {
+              console.warn('Proxy generation notice for frame', index, pErr);
+              finalProxyUri = savedUri;
+            }
+          }
+        } catch (manipErr) {
+          console.warn('Image manipulation fallback for frame', index, manipErr);
+          // Direct copy failsafe
+          try {
+            if (FileSystem.documentDirectory) {
+              await FileSystem.copyAsync({
+                from: asset.uri,
+                to: targetPath,
+              });
+              savedUri = targetPath;
+              finalProxyUri = targetPath;
+            } else {
+              savedUri = asset.uri;
+              finalProxyUri = asset.uri;
+            }
+          } catch (copyErr) {
+            console.error('Fatal copy fallback error:', copyErr);
+            savedUri = asset.uri;
+            finalProxyUri = asset.uri;
           }
         }
 
         importedFrames[index] = {
           id: frameId,
-          uri: FileSystem.documentDirectory ? targetPath : savedResult.uri,
+          uri: savedUri,
           proxyUri: finalProxyUri,
           timestamp: snapTime,
         };
@@ -1008,15 +1065,6 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
           current: completedCount,
           stageMessage: `Preparing frame ${completedCount} of ${totalAssets}...`,
         }));
-      };
-
-      // Run parallel worker pool
-      for (let i = 0; i < assetsWithTime.length; i += CONCURRENCY_LIMIT) {
-        const batch = [];
-        for (let j = i; j < Math.min(i + CONCURRENCY_LIMIT, assetsWithTime.length); j++) {
-          batch.push(processFrameItem(j));
-        }
-        await Promise.all(batch);
       }
 
       const updatedFrames = [...frames, ...importedFrames];
