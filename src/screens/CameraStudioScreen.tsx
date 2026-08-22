@@ -22,6 +22,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -53,6 +54,7 @@ import { StudioSettingsModal, OnionSkinConfig } from '../components/StudioSettin
 import { SmearModal } from '../components/SmearModal';
 import { FullScreenPlaybackModal } from '../components/FullScreenPlaybackModal';
 import { ImportLoadingModal } from '../components/ImportLoadingModal';
+import { MediaGalleryPickerModal } from '../components/MediaGalleryPickerModal';
 import { VoiceoverRecordModal } from '../components/VoiceoverRecordModal';
 import { ChromaKeyModal, ChromaKeyConfig } from '../components/ChromaKeyModal';
 import { BatchExportModal } from '../components/BatchExportModal';
@@ -256,6 +258,9 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     current: 0,
     total: 0,
   });
+
+  // Unlimited In-App Gallery Picker Modal State
+  const [showGalleryPickerModal, setShowGalleryPickerModal] = useState(false);
 
   // Audio State
   const [audioTrack, setAudioTrack] = useState<AudioTrack | undefined>(project.audioTrack);
@@ -842,19 +847,20 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     }
   };
 
-  // 4. Import Images from Storage with Accurate Chronological Snap Time Sorting
-  const handleImportImages = async () => {
+  // 4. Import Images with In-App Unlimited Multi-Selection & Accurate Chronological Sorting
+  const handleImportImages = () => {
+    setShowGalleryPickerModal(true);
+  };
+
+  const handleProcessImportedAssets = async (
+    selectedAssets: Array<
+      MediaLibrary.Asset | ImagePicker.ImagePickerAsset | { uri: string; id?: string; assetId?: string; filename?: string; fileName?: string; width?: number; height?: number }
+    >
+  ) => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        quality: 1,
-        exif: true,
-      });
+      if (!selectedAssets || selectedAssets.length === 0) return;
 
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
-
-      const totalAssets = result.assets.length;
+      const totalAssets = selectedAssets.length;
       setImportLoadingState({
         visible: true,
         current: 0,
@@ -871,14 +877,19 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
 
       // 1. Resolve exact snap times for each asset concurrently in batches (High Priority Worker Pool)
       const CONCURRENCY_LIMIT = 4;
-      const assetsWithTime: Array<{ asset: ImagePicker.ImagePickerAsset; snapTime: number }> = [];
+      const assetsWithTime: Array<{ asset: any; snapTime: number }> = [];
 
       for (let i = 0; i < totalAssets; i += CONCURRENCY_LIMIT) {
-        const chunk = result.assets.slice(i, i + CONCURRENCY_LIMIT);
+        const chunk = selectedAssets.slice(i, i + CONCURRENCY_LIMIT);
         const chunkResults = await Promise.all(
           chunk.map(async (asset) => ({
             asset,
-            snapTime: await photoTimestampHelper.getExactCaptureTime(asset),
+            snapTime: await photoTimestampHelper.getExactCaptureTime({
+              uri: asset.uri,
+              assetId: (asset as any).id || (asset as any).assetId,
+              fileName: (asset as any).filename || (asset as any).fileName,
+              exif: (asset as any).exif,
+            }),
           }))
         );
         assetsWithTime.push(...chunkResults);
@@ -1001,10 +1012,10 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
 
       await syncProjectChanges(updatedFrames);
       setImportLoadingState({ visible: false, current: 0, total: 0 });
-    } catch (e) {
+    } catch (e: any) {
       setImportLoadingState({ visible: false, current: 0, total: 0 });
       console.warn('Import error:', e);
-      Alert.alert('Import Failed', 'Could not import images from device storage.');
+      Alert.alert('Import Failed', e.message || 'Could not import images from device storage.');
     }
   };
 
@@ -2828,6 +2839,13 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
         current={importLoadingState.current}
         total={importLoadingState.total}
         stageMessage={importLoadingState.stageMessage}
+      />
+
+      {/* Unlimited In-App Photo Gallery Multi-Select Modal */}
+      <MediaGalleryPickerModal
+        visible={showGalleryPickerModal}
+        onClose={() => setShowGalleryPickerModal(false)}
+        onImport={handleProcessImportedAssets}
       />
     </View>
   );

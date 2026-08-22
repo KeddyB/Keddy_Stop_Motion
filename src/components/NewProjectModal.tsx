@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableWithoutFeedback,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
@@ -39,6 +40,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 }) => {
   const { theme, isDark } = useTheme();
   const { settings } = useAppSettings();
+  const { width, height } = useWindowDimensions();
 
   // Map between landscape and portrait equivalent ratios
   const flipToPortraitRatio = (ratio: AspectRatioOption): AspectRatioOption => {
@@ -65,27 +67,33 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     return ratio === '9:16' || ratio === '3:4' || ratio === '9:21';
   };
 
-  // Initialize with in-app default settings
-  const defaultIsPortrait = isPortraitRatio(settings.defaultAspectRatio);
+  // Initialize with in-app default settings and current device orientation
+  const isDeviceLandscape = width > height;
+  const defaultIsPortrait = !isDeviceLandscape && isPortraitRatio(settings.defaultAspectRatio);
   const [title, setTitle] = useState(`Animation #${nextIndex}`);
   const [orientation, setOrientation] = useState<OrientationMode>(
     defaultIsPortrait ? 'portrait' : 'landscape'
   );
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(
-    settings.defaultAspectRatio || '16:9'
+    settings.defaultAspectRatio || (defaultIsPortrait ? '9:16' : '16:9')
   );
   const [projectFps, setProjectFps] = useState<number>(settings.playbackFps || 12);
 
-  // Sync with global settings when modal opens
+  // Sync with global settings and device orientation when modal opens
   useEffect(() => {
     if (visible) {
-      const isPort = isPortraitRatio(settings.defaultAspectRatio);
-      setOrientation(isPort ? 'portrait' : 'landscape');
-      setAspectRatio(settings.defaultAspectRatio || (isPort ? '9:16' : '16:9'));
+      const isLandscapeView = width > height;
+      const initOrientation: OrientationMode = isLandscapeView ? 'landscape' : (isPortraitRatio(settings.defaultAspectRatio) ? 'portrait' : 'landscape');
+      setOrientation(initOrientation);
+      if (initOrientation === 'landscape') {
+        setAspectRatio(flipToLandscapeRatio(settings.defaultAspectRatio || '16:9'));
+      } else {
+        setAspectRatio(flipToPortraitRatio(settings.defaultAspectRatio || '9:16'));
+      }
       setProjectFps(settings.playbackFps || 12);
       setTitle(`Animation #${nextIndex}`);
     }
-  }, [visible, settings, nextIndex]);
+  }, [visible, settings, nextIndex, width, height]);
 
   const handleSelectOrientation = (mode: OrientationMode) => {
     setOrientation(mode);

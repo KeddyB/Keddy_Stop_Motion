@@ -6,6 +6,7 @@ import {
   FlatList,
   Pressable,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
@@ -41,7 +42,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const insets = useAppInsets();
+  const { width } = useWindowDimensions();
   const { projects, deleteProject, duplicateProject, updateProject } = useProjects();
+
+  // Dynamic responsive column count for side-by-side projects layout (up to 5 columns on 14"+ laptops/tablets)
+  const numColumns =
+    width >= 1400
+      ? 5
+      : width >= 1120
+      ? 4
+      : width >= 840
+      ? 3
+      : width >= 560
+      ? 2
+      : 1;
 
   // Multi-Select State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -171,7 +185,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <View style={styles.content}>
         {/* Projects List with Integrated Header */}
         <FlatList
+          key={numColumns}
           data={projects}
+          numColumns={numColumns}
+          columnWrapperStyle={numColumns > 1 ? styles.columnWrapper : undefined}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
@@ -367,6 +384,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 12,
+    maxWidth: 1920,
+    width: '100%',
+    alignSelf: 'center',
   },
   listHeaderWrapper: {
     paddingBottom: 4,
@@ -444,6 +464,9 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingTop: 2,
   },
+  columnWrapper: {
+    gap: 16,
+  },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -474,6 +497,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 20,
     right: 20,
+    maxWidth: 600,
+    alignSelf: 'center',
     zIndex: 100,
   },
   batchFloatingContent: {

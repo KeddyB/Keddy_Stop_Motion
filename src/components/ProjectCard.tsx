@@ -47,7 +47,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         else if (onToggleSelect) onToggleSelect(project.id);
       }}
       style={({ pressed }) => [
-        { marginBottom: 16 },
+        { flex: 1, marginBottom: 16 },
         { opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
       ]}
     >

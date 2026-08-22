@@ -24,13 +24,22 @@ export const orientationHelper = {
   },
 
   /**
-   * Reset orientation back to default portrait
+   * Unlock orientation so the app adapts naturally to device orientation (portrait or landscape)
+   */
+  async unlockOrientation(): Promise<void> {
+    try {
+      await ScreenOrientation.unlockAsync();
+    } catch (e) {
+      console.warn('Screen orientation unlock error:', e);
+    }
+  },
+
+  /**
+   * Reset orientation back to device natural orientation
    */
   async resetToPortrait(): Promise<void> {
     try {
-      await ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP
-      );
+      await ScreenOrientation.unlockAsync();
     } catch (e) {
       console.warn('Screen orientation reset error:', e);
     }
