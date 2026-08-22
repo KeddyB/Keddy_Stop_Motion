@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  Modal,
   View,
   Text,
   StyleSheet,
   Pressable,
   TextInput,
   ScrollView,
-  Dimensions,
   PanResponder,
   GestureResponderEvent,
   PanResponderGestureState,
   LayoutChangeEvent,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -53,7 +54,7 @@ const BG_PILL_COLORS = [
   'rgba(236, 72, 153, 0.85)',
 ];
 
-const PRESET_SIZES = [18, 24, 32, 42, 56];
+const PRESET_SIZES = [16, 22, 28, 36, 48, 60];
 
 export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
   frameUri,
@@ -65,12 +66,16 @@ export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
   totalFrames,
 }) => {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
+
   const [overlays, setOverlays] = useState<TextOverlay[]>(initialOverlays || []);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialOverlays && initialOverlays.length > 0 ? initialOverlays[0].id : null
   );
   const [selectedCategory, setSelectedCategory] = useState<FontCategory>('all');
   const [activeTab, setActiveTab] = useState<'font' | 'color' | 'size'>('font');
+  const [isFocusMode, setIsFocusMode] = useState(false); // Maximize canvas mode
   const [stageDimensions, setStageDimensions] = useState({ width: 300, height: 200 });
 
   const selectedOverlay = overlays.find((o) => o.id === selectedId) || null;
@@ -98,9 +103,9 @@ export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
   const handleAddText = () => {
     const newOverlay: TextOverlay = {
       id: `txt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      text: 'Double Tap to Edit',
+      text: 'Text Layer',
       fontFamily: 'PressStart2P',
-      fontSize: 28,
+      fontSize: 26,
       color: '#FFFFFF',
       backgroundColor: 'transparent',
       x: 0.5,
@@ -168,609 +173,720 @@ export const TextOverlayEditor: React.FC<TextOverlayEditorProps> = ({
     (f) => selectedCategory === 'all' || f.category === selectedCategory
   );
 
-  return (
-    <View style={styles.fullOverlay} pointerEvents="box-none">
-      {/* Top Bar */}
-      <View style={[styles.topBar, { top: insets.top + 8 }]} pointerEvents="box-none">
-        <Pressable
-          style={({ pressed }) => [
-            styles.backBtn,
-            { transform: [{ scale: pressed ? 0.92 : 1 }] },
-          ]}
-          unstable_pressDelay={0}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          onPress={onClose}
-        >
-          <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
-        </Pressable>
-
-        <View style={styles.titleBadge}>
-          <Ionicons name="text" size={15} color="#818CF8" style={{ marginRight: 6 }} />
-          <Text style={styles.titleBadgeText}>
-            Text Studio • Frame #{frameIndex + 1}
-            {totalFrames ? ` of ${totalFrames}` : ''}
-          </Text>
-        </View>
-
-        <View style={styles.topActions}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.actionBtn,
-              styles.addBtn,
-              { transform: [{ scale: pressed ? 0.92 : 1 }] },
-            ]}
-            unstable_pressDelay={0}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            onPress={handleAddText}
-          >
-            <Ionicons name="add" size={17} color="#FFFFFF" />
-            <Text style={styles.actionBtnText}>Add Text</Text>
-          </Pressable>
-
-          {selectedOverlay && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.deleteBtn,
-                { transform: [{ scale: pressed ? 0.92 : 1 }] },
-              ]}
-              unstable_pressDelay={0}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={handleDeleteSelected}
-            >
-              <Ionicons name="trash-outline" size={15} color="#FFFFFF" />
-            </Pressable>
-          )}
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.actionBtn,
-              styles.doneBtn,
-              { transform: [{ scale: pressed ? 0.92 : 1 }] },
-            ]}
-            unstable_pressDelay={0}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            onPress={handleSaveAndClose}
-          >
-            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-            <Text style={styles.doneBtnText}>Done</Text>
+  // Inspector panel content (reusable in landscape sidebar and portrait bottom sheet)
+  const renderInspectorControls = () => {
+    if (!selectedOverlay) {
+      return (
+        <View style={styles.emptyInspectorContainer}>
+          <Pressable style={styles.emptyPromptBtn} onPress={handleAddText}>
+            <Ionicons name="add-circle" size={18} color="#818CF8" style={{ marginRight: 6 }} />
+            <Text style={styles.emptyPromptText}>Tap to Add Text Layer</Text>
           </Pressable>
         </View>
-      </View>
+      );
+    }
 
-      {/* Main Canvas Viewport Area */}
-      <View style={styles.canvasContainer} pointerEvents="box-none">
-        <Pressable
-          style={[
-            styles.stageBox,
-            {
-              aspectRatio: aspectRatio,
-              width: aspectRatio >= 1 ? '100%' : 'auto',
-              height: aspectRatio >= 1 ? 'auto' : '100%',
-              maxWidth: '100%',
-              maxHeight: '100%',
-            },
-          ]}
-          onLayout={handleStageLayout}
-          onPress={() => setSelectedId(null)}
-        >
-          {/* Target Frame Image */}
-          {frameUri ? (
-            <ExpoImage
-              source={{ uri: frameUri }}
-              style={StyleSheet.absoluteFill}
-              contentFit="contain"
-              transition={0}
-              cachePolicy="memory-disk"
-              priority="high"
+    return (
+      <View style={styles.inspectorContentWrapper}>
+        {/* 1. Live Text Input Field with Shadow & Align */}
+        <View style={styles.inputRow}>
+          <Ionicons name="pencil" size={14} color="#818CF8" style={{ marginLeft: 4 }} />
+          <TextInput
+            value={selectedOverlay.text}
+            onChangeText={(text) => handleUpdateSelected({ text })}
+            placeholder="Type text..."
+            placeholderTextColor="#64748B"
+            style={styles.textInput}
+            selectTextOnFocus
+          />
+          {/* Shadow toggle button */}
+          <Pressable
+            style={[styles.toggleBadge, selectedOverlay.shadow && styles.toggleBadgeActive]}
+            onPress={() => handleUpdateSelected({ shadow: !selectedOverlay.shadow })}
+          >
+            <Ionicons
+              name="contrast"
+              size={13}
+              color={selectedOverlay.shadow ? '#FFFFFF' : '#94A3B8'}
             />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1E293B' }]} />
-          )}
+            <Text
+              style={[
+                styles.toggleBadgeText,
+                selectedOverlay.shadow && styles.toggleBadgeTextActive,
+              ]}
+            >
+              Shadow
+            </Text>
+          </Pressable>
 
-          {/* Render Text Overlays */}
-          {overlays.map((ov) => {
-            const isSelected = ov.id === selectedId;
-            return (
+          {/* Align toggle button */}
+          <Pressable
+            style={styles.toggleBadge}
+            onPress={() => {
+              const aligns: ('left' | 'center' | 'right')[] = ['center', 'right', 'left'];
+              const nextAlign =
+                aligns[(aligns.indexOf(selectedOverlay.align || 'center') + 1) % aligns.length];
+              handleUpdateSelected({ align: nextAlign });
+            }}
+          >
+            <Ionicons
+              name={
+                selectedOverlay.align === 'left'
+                  ? 'text'
+                  : selectedOverlay.align === 'right'
+                  ? 'reorder-four'
+                  : 'reorder-three'
+              }
+              size={14}
+              color="#FFFFFF"
+            />
+          </Pressable>
+        </View>
+
+        {/* 2. Mode Tabs (Font, Color, Size) */}
+        <View style={styles.modeTabsRow}>
+          <Pressable
+            style={[styles.modeTabBtn, activeTab === 'font' && styles.modeTabBtnActive]}
+            onPress={() => setActiveTab('font')}
+          >
+            <Ionicons
+              name="text"
+              size={12}
+              color={activeTab === 'font' ? '#FFFFFF' : '#94A3B8'}
+            />
+            <Text
+              style={[
+                styles.modeTabBtnText,
+                activeTab === 'font' && styles.modeTabBtnTextActive,
+              ]}
+            >
+              Font (100)
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.modeTabBtn, activeTab === 'color' && styles.modeTabBtnActive]}
+            onPress={() => setActiveTab('color')}
+          >
+            <Ionicons
+              name="color-palette"
+              size={12}
+              color={activeTab === 'color' ? '#FFFFFF' : '#94A3B8'}
+            />
+            <Text
+              style={[
+                styles.modeTabBtnText,
+                activeTab === 'color' && styles.modeTabBtnTextActive,
+              ]}
+            >
+              Color & BG
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.modeTabBtn, activeTab === 'size' && styles.modeTabBtnActive]}
+            onPress={() => setActiveTab('size')}
+          >
+            <Ionicons
+              name="resize"
+              size={12}
+              color={activeTab === 'size' ? '#FFFFFF' : '#94A3B8'}
+            />
+            <Text
+              style={[
+                styles.modeTabBtnText,
+                activeTab === 'size' && styles.modeTabBtnTextActive,
+              ]}
+            >
+              Size ({selectedOverlay.fontSize}px)
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* 3A. Font Picker Panel */}
+        {activeTab === 'font' && (
+          <View style={styles.fontPanel}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryScroll}
+            >
+              {FONT_CATEGORIES.map((cat) => {
+                const isCatSelected = selectedCategory === cat.id;
+                return (
+                  <Pressable
+                    key={cat.id}
+                    style={[styles.catPill, isCatSelected && styles.catPillActive]}
+                    onPress={() => setSelectedCategory(cat.id)}
+                  >
+                    <Text
+                      style={[styles.catPillText, isCatSelected && styles.catPillTextActive]}
+                    >
+                      {cat.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.fontsScroll}
+            >
+              {filteredFonts.map((f) => {
+                const isFontSelected = selectedOverlay.fontFamily === f.family;
+                return (
+                  <Pressable
+                    key={f.id}
+                    style={[styles.fontCard, isFontSelected && styles.fontCardSelected]}
+                    onPress={() => handleSelectFont(f)}
+                  >
+                    <Text
+                      style={[
+                        styles.fontCardPreview,
+                        {
+                          fontFamily: fontLoader.isFontLoaded(f.id) ? f.family : undefined,
+                        },
+                        isFontSelected && styles.fontCardPreviewSelected,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {f.name}
+                    </Text>
+                    <Text style={styles.fontCardCategory}>{f.category}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* 3B. Color & Background Palette Panel */}
+        {activeTab === 'color' && (
+          <View style={styles.colorPanel}>
+            <Text style={styles.panelSectionTitle}>Text Color</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.paletteScroll}
+            >
+              {TEXT_COLORS.map((c) => {
+                const isColorSelected = selectedOverlay.color === c;
+                return (
+                  <Pressable
+                    key={c}
+                    style={[
+                      styles.colorCircle,
+                      { backgroundColor: c },
+                      isColorSelected && styles.colorCircleSelected,
+                    ]}
+                    onPress={() => handleUpdateSelected({ color: c })}
+                  >
+                    {isColorSelected && (
+                      <Ionicons
+                        name="checkmark"
+                        size={13}
+                        color={c === '#FFFFFF' || c === '#FBBF24' ? '#000000' : '#FFFFFF'}
+                      />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={[styles.panelSectionTitle, { marginTop: 6 }]}>Banner Background</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.paletteScroll}
+            >
+              {BG_PILL_COLORS.map((bg, idx) => {
+                const isBgSelected = (selectedOverlay.backgroundColor || 'transparent') === bg;
+                return (
+                  <Pressable
+                    key={idx}
+                    style={[
+                      styles.bgPillCircle,
+                      { backgroundColor: bg === 'transparent' ? '#1E293B' : bg },
+                      isBgSelected && styles.colorCircleSelected,
+                    ]}
+                    onPress={() => handleUpdateSelected({ backgroundColor: bg })}
+                  >
+                    {bg === 'transparent' ? (
+                      <Ionicons name="close" size={12} color="#94A3B8" />
+                    ) : isBgSelected ? (
+                      <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* 3C. Size Panel */}
+        {activeTab === 'size' && (
+          <View style={styles.sizePanel}>
+            <View style={styles.sizeStepperRow}>
+              <Pressable
+                style={styles.sizeStepBtn}
+                onPress={() =>
+                  handleUpdateSelected({
+                    fontSize: Math.max(12, selectedOverlay.fontSize - 3),
+                  })
+                }
+              >
+                <Ionicons name="remove" size={16} color="#FFFFFF" />
+              </Pressable>
+
+              <Text style={styles.sizeValueDisplay}>{selectedOverlay.fontSize} px</Text>
+
+              <Pressable
+                style={styles.sizeStepBtn}
+                onPress={() =>
+                  handleUpdateSelected({
+                    fontSize: Math.min(80, selectedOverlay.fontSize + 3),
+                  })
+                }
+              >
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+              </Pressable>
+            </View>
+
+            <View style={styles.presetChipsRow}>
+              {PRESET_SIZES.map((sz) => (
+                <Pressable
+                  key={sz}
+                  style={[
+                    styles.sizeChip,
+                    selectedOverlay.fontSize === sz && styles.sizeChipSelected,
+                  ]}
+                  onPress={() => handleUpdateSelected({ fontSize: sz })}
+                >
+                  <Text
+                    style={[
+                      styles.sizeChipText,
+                      selectedOverlay.fontSize === sz && styles.sizeChipTextSelected,
+                    ]}
+                  >
+                    {sz}px
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Canvas Viewport component
+  const renderCanvasStage = () => (
+    <View
+      style={[
+        styles.canvasContainer,
+        isLandscape && !isFocusMode && styles.canvasContainerLandscapeSplit,
+        isFocusMode && styles.canvasContainerFocus,
+      ]}
+      pointerEvents="box-none"
+    >
+      <Pressable
+        style={[
+          styles.stageBox,
+          {
+            aspectRatio: aspectRatio,
+            width: isLandscape
+              ? (aspectRatio >= 1 ? 'auto' : 'auto')
+              : (aspectRatio >= 1 ? '100%' : 'auto'),
+            height: isLandscape
+              ? '96%'
+              : (aspectRatio >= 1 ? 'auto' : '96%'),
+            maxWidth: '100%',
+            maxHeight: '100%',
+          },
+        ]}
+        onLayout={handleStageLayout}
+        onPress={() => setSelectedId(null)}
+      >
+        {/* Target Frame Image */}
+        {frameUri ? (
+          <ExpoImage
+            source={{ uri: frameUri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="contain"
+            transition={0}
+            cachePolicy="memory-disk"
+            priority="high"
+          />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1E293B' }]} />
+        )}
+
+        {/* Render Text Overlays */}
+        {overlays.map((ov) => {
+          const isSelected = ov.id === selectedId;
+          return (
+            <View
+              key={ov.id}
+              style={[
+                styles.textOverlayAnchor,
+                {
+                  left: `${(ov.x * 100).toFixed(2)}%` as any,
+                  top: `${(ov.y * 100).toFixed(2)}%` as any,
+                },
+              ]}
+              pointerEvents="box-none"
+            >
               <View
-                key={ov.id}
                 style={[
-                  styles.textOverlayAnchor,
+                  styles.textOverlayWrapper,
+                  isSelected && styles.selectedOverlayWrapper,
+                ]}
+                {...(isSelected ? panResponder.panHandlers : {})}
+              >
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setSelectedId(ov.id);
+                  }}
+                  style={[
+                    styles.textContainerPill,
+                    ov.backgroundColor && ov.backgroundColor !== 'transparent'
+                      ? {
+                          backgroundColor: ov.backgroundColor,
+                          paddingHorizontal: 12,
+                          paddingVertical: 5,
+                          borderRadius: 8,
+                        }
+                      : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.renderedText,
+                      {
+                        fontFamily: fontLoader.isFontLoaded(ov.fontFamily)
+                          ? ov.fontFamily
+                          : undefined,
+                        fontSize: ov.fontSize,
+                        color: ov.color,
+                        textAlign: ov.align || 'center',
+                      },
+                      ov.shadow && styles.textShadowEffect,
+                    ]}
+                  >
+                    {ov.text || 'Text'}
+                  </Text>
+                </Pressable>
+
+                {/* Visual Drag Handles when Selected */}
+                {isSelected && (
+                  <View style={styles.selectionBorder} pointerEvents="none">
+                    <View style={[styles.cornerDot, styles.cornerTL]} />
+                    <View style={[styles.cornerDot, styles.cornerTR]} />
+                    <View style={[styles.cornerDot, styles.cornerBL]} />
+                    <View style={[styles.cornerDot, styles.cornerBR]} />
+                  </View>
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </Pressable>
+    </View>
+  );
+
+  return (
+    <Modal
+      visible={true}
+      transparent={false}
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.fullOverlay}>
+        {/* Landscape Mode: Side-by-Side View */}
+        {isLandscape && !isFocusMode ? (
+          <View style={styles.landscapeRootRow}>
+            {/* Left: Maximized Full-Height Canvas */}
+            <View style={styles.landscapeCanvasPane}>
+              {/* Mini Top Action Strip for Canvas */}
+              <View
+                style={[
+                  styles.miniTopStrip,
+                  { top: Math.max(insets.top + 6, 10), left: Math.max(insets.left + 10, 10) },
+                ]}
+                pointerEvents="box-none"
+              >
+                <Pressable
+                  style={styles.backBtn}
+                  onPress={onClose}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
+                </Pressable>
+                <View style={styles.titleBadge}>
+                  <Ionicons name="text" size={13} color="#818CF8" style={{ marginRight: 5 }} />
+                  <Text style={styles.titleBadgeText}>Frame #{frameIndex + 1}</Text>
+                </View>
+              </View>
+
+              {renderCanvasStage()}
+            </View>
+
+            {/* Right: Dedicated Inspector Sidebar */}
+            <View
+              style={[
+                styles.landscapeSidebar,
+                {
+                  paddingTop: Math.max(insets.top + 6, 10),
+                  paddingBottom: Math.max(insets.bottom + 6, 10),
+                  paddingRight: Math.max(insets.right + 10, 10),
+                },
+              ]}
+            >
+              {/* Header Actions */}
+              <View style={styles.sidebarHeaderRow}>
+                <Pressable
+                  style={[styles.actionBtn, styles.addBtn]}
+                  onPress={handleAddText}
+                >
+                  <Ionicons name="add" size={16} color="#FFFFFF" />
+                  <Text style={styles.actionBtnText}>Add</Text>
+                </Pressable>
+
+                {selectedOverlay && (
+                  <Pressable
+                    style={[styles.actionBtn, styles.deleteBtn]}
+                    onPress={handleDeleteSelected}
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#FFFFFF" />
+                  </Pressable>
+                )}
+
+                <Pressable
+                  style={[styles.actionBtn, styles.focusToggleBtn]}
+                  onPress={() => setIsFocusMode(true)}
+                >
+                  <Ionicons name="scan-outline" size={15} color="#FFFFFF" />
+                  <Text style={styles.actionBtnText}>Full</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.actionBtn, styles.doneBtn]}
+                  onPress={handleSaveAndClose}
+                >
+                  <Ionicons name="checkmark" size={15} color="#FFFFFF" />
+                  <Text style={styles.doneBtnText}>Done</Text>
+                </Pressable>
+              </View>
+
+              {/* Scrollable Inspector Controls */}
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingVertical: 6 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {renderInspectorControls()}
+              </ScrollView>
+            </View>
+          </View>
+        ) : (
+          /* Portrait Mode or Focus Mode: Full Screen with Floating Glass Dock */
+          <>
+            {/* Top Bar */}
+            <View
+              style={[
+                styles.topBar,
+                {
+                  top: Math.max(insets.top + 6, 12),
+                  left: Math.max(insets.left + 12, 12),
+                  right: Math.max(insets.right + 12, 12),
+                },
+              ]}
+              pointerEvents="box-none"
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.backBtn,
+                  { transform: [{ scale: pressed ? 0.92 : 1 }] },
+                ]}
+                unstable_pressDelay={0}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={onClose}
+              >
+                <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+              </Pressable>
+
+              {!isFocusMode && (
+                <View style={styles.titleBadge}>
+                  <Ionicons name="text" size={14} color="#818CF8" style={{ marginRight: 6 }} />
+                  <Text style={styles.titleBadgeText}>
+                    Text • Frame #{frameIndex + 1}
+                    {totalFrames ? `/${totalFrames}` : ''}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.topActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.addBtn,
+                    { transform: [{ scale: pressed ? 0.92 : 1 }] },
+                  ]}
+                  unstable_pressDelay={0}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={handleAddText}
+                >
+                  <Ionicons name="add" size={16} color="#FFFFFF" />
+                  {!isLandscape && <Text style={styles.actionBtnText}>Add</Text>}
+                </Pressable>
+
+                {selectedOverlay && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      styles.deleteBtn,
+                      { transform: [{ scale: pressed ? 0.92 : 1 }] },
+                    ]}
+                    unstable_pressDelay={0}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    onPress={handleDeleteSelected}
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#FFFFFF" />
+                  </Pressable>
+                )}
+
+                {/* Focus / Fullscreen Mode Toggle */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.focusToggleBtn,
+                    isFocusMode && styles.focusToggleBtnActive,
+                    { transform: [{ scale: pressed ? 0.92 : 1 }] },
+                  ]}
+                  unstable_pressDelay={0}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => setIsFocusMode(!isFocusMode)}
+                >
+                  <Ionicons
+                    name={isFocusMode ? 'contract' : 'scan-outline'}
+                    size={16}
+                    color="#FFFFFF"
+                  />
+                  {!isLandscape && (
+                    <Text style={styles.actionBtnText}>
+                      {isFocusMode ? 'Tools' : 'Full'}
+                    </Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.doneBtn,
+                    { transform: [{ scale: pressed ? 0.92 : 1 }] },
+                  ]}
+                  unstable_pressDelay={0}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={handleSaveAndClose}
+                >
+                  <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  <Text style={styles.doneBtnText}>Done</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Canvas Viewport */}
+            {renderCanvasStage()}
+
+            {/* Bottom Floating Control Dock */}
+            {!isFocusMode && (
+              <View
+                style={[
+                  styles.bottomBar,
                   {
-                    left: `${(ov.x * 100).toFixed(2)}%` as any,
-                    top: `${(ov.y * 100).toFixed(2)}%` as any,
+                    bottom: Math.max(insets.bottom + 4, 10),
+                    left: Math.max(insets.left + 10, 10),
+                    right: Math.max(insets.right + 10, 10),
                   },
                 ]}
                 pointerEvents="box-none"
               >
-                <View
-                  style={[
-                    styles.textOverlayWrapper,
-                    isSelected && styles.selectedOverlayWrapper,
-                  ]}
-                  {...(isSelected ? panResponder.panHandlers : {})}
-                >
-                  <Pressable
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      setSelectedId(ov.id);
-                    }}
-                    style={[
-                      styles.textContainerPill,
-                      ov.backgroundColor && ov.backgroundColor !== 'transparent'
-                        ? { backgroundColor: ov.backgroundColor, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }
-                        : null,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.renderedText,
-                        {
-                          fontFamily: fontLoader.isFontLoaded(ov.fontFamily)
-                            ? ov.fontFamily
-                            : undefined,
-                          fontSize: ov.fontSize,
-                          color: ov.color,
-                          textAlign: ov.align || 'center',
-                        },
-                        ov.shadow && styles.textShadowEffect,
-                      ]}
-                    >
-                      {ov.text || 'Text'}
-                    </Text>
-                  </Pressable>
-
-                  {/* Visual Drag Handles when Selected */}
-                  {isSelected && (
-                    <View style={styles.selectionBorder} pointerEvents="none">
-                      <View style={[styles.cornerDot, styles.cornerTL]} />
-                      <View style={[styles.cornerDot, styles.cornerTR]} />
-                      <View style={[styles.cornerDot, styles.cornerBL]} />
-                      <View style={[styles.cornerDot, styles.cornerBR]} />
-                    </View>
-                  )}
+                <View style={styles.dockSurface}>
+                  {renderInspectorControls()}
                 </View>
               </View>
-            );
-          })}
-        </Pressable>
+            )}
+          </>
+        )}
       </View>
-
-      {/* Bottom Floating Control Dock */}
-      {selectedOverlay ? (
-        <View
-          style={[styles.bottomBar, { bottom: Math.max(insets.bottom + 4, 14) }]}
-          pointerEvents="box-none"
-        >
-          <View style={styles.dockSurface}>
-            {/* 1. Live Text Input Field */}
-            <View style={styles.inputRow}>
-              <Ionicons name="pencil" size={15} color="#818CF8" style={{ marginLeft: 4 }} />
-              <TextInput
-                value={selectedOverlay.text}
-                onChangeText={(text) => handleUpdateSelected({ text })}
-                placeholder="Type your text..."
-                placeholderTextColor="#64748B"
-                style={styles.textInput}
-                selectTextOnFocus
-              />
-              {/* Shadow toggle button */}
-              <Pressable
-                style={[
-                  styles.toggleBadge,
-                  selectedOverlay.shadow && styles.toggleBadgeActive,
-                ]}
-                onPress={() => handleUpdateSelected({ shadow: !selectedOverlay.shadow })}
-              >
-                <Ionicons
-                  name="contrast"
-                  size={14}
-                  color={selectedOverlay.shadow ? '#FFFFFF' : '#94A3B8'}
-                />
-                <Text
-                  style={[
-                    styles.toggleBadgeText,
-                    selectedOverlay.shadow && styles.toggleBadgeTextActive,
-                  ]}
-                >
-                  Shadow
-                </Text>
-              </Pressable>
-
-              {/* Align toggle button */}
-              <Pressable
-                style={styles.toggleBadge}
-                onPress={() => {
-                  const aligns: ('left' | 'center' | 'right')[] = ['center', 'right', 'left'];
-                  const nextAlign =
-                    aligns[(aligns.indexOf(selectedOverlay.align || 'center') + 1) % aligns.length];
-                  handleUpdateSelected({ align: nextAlign });
-                }}
-              >
-                <Ionicons
-                  name={
-                    selectedOverlay.align === 'left'
-                      ? 'text'
-                      : selectedOverlay.align === 'right'
-                      ? 'reorder-four'
-                      : 'reorder-three'
-                  }
-                  size={15}
-                  color="#FFFFFF"
-                />
-              </Pressable>
-            </View>
-
-            {/* 2. Mode Tabs (Font, Color, Size) */}
-            <View style={styles.modeTabsRow}>
-              <Pressable
-                style={[styles.modeTabBtn, activeTab === 'font' && styles.modeTabBtnActive]}
-                onPress={() => setActiveTab('font')}
-              >
-                <Ionicons
-                  name="text"
-                  size={13}
-                  color={activeTab === 'font' ? '#FFFFFF' : '#94A3B8'}
-                />
-                <Text
-                  style={[
-                    styles.modeTabBtnText,
-                    activeTab === 'font' && styles.modeTabBtnTextActive,
-                  ]}
-                >
-                  Font (100)
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.modeTabBtn, activeTab === 'color' && styles.modeTabBtnActive]}
-                onPress={() => setActiveTab('color')}
-              >
-                <Ionicons
-                  name="color-palette"
-                  size={13}
-                  color={activeTab === 'color' ? '#FFFFFF' : '#94A3B8'}
-                />
-                <Text
-                  style={[
-                    styles.modeTabBtnText,
-                    activeTab === 'color' && styles.modeTabBtnTextActive,
-                  ]}
-                >
-                  Color & BG
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.modeTabBtn, activeTab === 'size' && styles.modeTabBtnActive]}
-                onPress={() => setActiveTab('size')}
-              >
-                <Ionicons
-                  name="resize"
-                  size={13}
-                  color={activeTab === 'size' ? '#FFFFFF' : '#94A3B8'}
-                />
-                <Text
-                  style={[
-                    styles.modeTabBtnText,
-                    activeTab === 'size' && styles.modeTabBtnTextActive,
-                  ]}
-                >
-                  Size ({selectedOverlay.fontSize}px)
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* 3A. Font Picker Panel */}
-            {activeTab === 'font' && (
-              <View style={styles.fontPanel}>
-                {/* Category Pills */}
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.categoryScroll}
-                >
-                  {FONT_CATEGORIES.map((cat) => {
-                    const isCatSelected = selectedCategory === cat.id;
-                    return (
-                      <Pressable
-                        key={cat.id}
-                        style={[
-                          styles.catPill,
-                          isCatSelected && styles.catPillActive,
-                        ]}
-                        onPress={() => setSelectedCategory(cat.id)}
-                      >
-                        <Text
-                          style={[
-                            styles.catPillText,
-                            isCatSelected && styles.catPillTextActive,
-                          ]}
-                        >
-                          {cat.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-
-                {/* Font Items Carousel */}
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.fontsScroll}
-                >
-                  {filteredFonts.map((f) => {
-                    const isFontSelected = selectedOverlay.fontFamily === f.family;
-                    return (
-                      <Pressable
-                        key={f.id}
-                        style={[
-                          styles.fontCard,
-                          isFontSelected && styles.fontCardSelected,
-                        ]}
-                        onPress={() => handleSelectFont(f)}
-                      >
-                        <Text
-                          style={[
-                            styles.fontCardPreview,
-                            {
-                              fontFamily: fontLoader.isFontLoaded(f.id)
-                                ? f.family
-                                : undefined,
-                            },
-                            isFontSelected && styles.fontCardPreviewSelected,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {f.name}
-                        </Text>
-                        <Text style={styles.fontCardCategory}>{f.category}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* 3B. Color & Background Palette Panel */}
-            {activeTab === 'color' && (
-              <View style={styles.colorPanel}>
-                {/* Text Color Row */}
-                <Text style={styles.panelSectionTitle}>Text Color</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.paletteScroll}
-                >
-                  {TEXT_COLORS.map((c) => {
-                    const isColorSelected = selectedOverlay.color === c;
-                    return (
-                      <Pressable
-                        key={c}
-                        style={[
-                          styles.colorCircle,
-                          { backgroundColor: c },
-                          isColorSelected && styles.colorCircleSelected,
-                        ]}
-                        onPress={() => handleUpdateSelected({ color: c })}
-                      >
-                        {isColorSelected && (
-                          <Ionicons
-                            name="checkmark"
-                            size={14}
-                            color={c === '#FFFFFF' || c === '#FBBF24' ? '#000000' : '#FFFFFF'}
-                          />
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-
-                {/* Background Banner Highlight Row */}
-                <Text style={[styles.panelSectionTitle, { marginTop: 8 }]}>Banner Highlight</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.paletteScroll}
-                >
-                  {BG_PILL_COLORS.map((bg, idx) => {
-                    const isBgSelected =
-                      (selectedOverlay.backgroundColor || 'transparent') === bg;
-                    return (
-                      <Pressable
-                        key={idx}
-                        style={[
-                          styles.bgPillCircle,
-                          { backgroundColor: bg === 'transparent' ? '#1E293B' : bg },
-                          isBgSelected && styles.colorCircleSelected,
-                        ]}
-                        onPress={() => handleUpdateSelected({ backgroundColor: bg })}
-                      >
-                        {bg === 'transparent' ? (
-                          <Ionicons name="close" size={13} color="#94A3B8" />
-                        ) : isBgSelected ? (
-                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* 3C. Size Panel */}
-            {activeTab === 'size' && (
-              <View style={styles.sizePanel}>
-                <View style={styles.sizeStepperRow}>
-                  <Pressable
-                    style={styles.sizeStepBtn}
-                    onPress={() =>
-                      handleUpdateSelected({
-                        fontSize: Math.max(12, selectedOverlay.fontSize - 4),
-                      })
-                    }
-                  >
-                    <Ionicons name="remove" size={18} color="#FFFFFF" />
-                  </Pressable>
-
-                  <Text style={styles.sizeValueDisplay}>{selectedOverlay.fontSize} px</Text>
-
-                  <Pressable
-                    style={styles.sizeStepBtn}
-                    onPress={() =>
-                      handleUpdateSelected({
-                        fontSize: Math.min(80, selectedOverlay.fontSize + 4),
-                      })
-                    }
-                  >
-                    <Ionicons name="add" size={18} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-
-                {/* Preset Chips */}
-                <View style={styles.presetChipsRow}>
-                  {PRESET_SIZES.map((sz) => (
-                    <Pressable
-                      key={sz}
-                      style={[
-                        styles.sizeChip,
-                        selectedOverlay.fontSize === sz && styles.sizeChipSelected,
-                      ]}
-                      onPress={() => handleUpdateSelected({ fontSize: sz })}
-                    >
-                      <Text
-                        style={[
-                          styles.sizeChipText,
-                          selectedOverlay.fontSize === sz && styles.sizeChipTextSelected,
-                        ]}
-                      >
-                        {sz}px
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
-          </View>
-        </View>
-      ) : (
-        /* Empty selection floating helper */
-        <View
-          style={[styles.bottomBar, { bottom: Math.max(insets.bottom + 8, 18) }]}
-          pointerEvents="box-none"
-        >
-          <Pressable
-            style={styles.emptyPromptBtn}
-            onPress={handleAddText}
-          >
-            <Ionicons name="add-circle" size={18} color="#818CF8" style={{ marginRight: 6 }} />
-            <Text style={styles.emptyPromptText}>Tap to add a new Text Overlay</Text>
-          </Pressable>
-        </View>
-      )}
-    </View>
+    </Modal>
   );
 };
 
 const styles = StyleSheet.create({
   fullOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: '#080C14',
-    zIndex: 999,
+    position: 'relative',
   },
-  topBar: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
+  landscapeRootRow: {
+    flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 1010,
-    gap: 8,
   },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
+  landscapeCanvasPane: {
+    flex: 1,
+    position: 'relative',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  titleBadge: {
+  miniTopStrip: {
+    position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+    gap: 8,
+    zIndex: 1010,
+  },
+  landscapeSidebar: {
+    width: 320,
+    backgroundColor: 'rgba(15, 23, 42, 0.96)',
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255, 255, 255, 0.15)',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.35)',
   },
-  titleBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  topActions: {
+  sidebarHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 6,
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 12,
-  },
-  actionBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  addBtn: {
-    backgroundColor: 'rgba(99, 102, 241, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(129, 140, 248, 0.4)',
-  },
-  deleteBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.4)',
-    paddingHorizontal: 9,
-  },
-  doneBtn: {
-    backgroundColor: '#6366F1',
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-  },
-  doneBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
+    marginBottom: 8,
   },
   canvasContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 65,
-    paddingBottom: 230,
+    paddingHorizontal: 8,
+    paddingTop: 56,
+    paddingBottom: 190,
+  },
+  canvasContainerLandscapeSplit: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  canvasContainerFocus: {
+    paddingTop: 44,
+    paddingBottom: 8,
   },
   stageBox: {
     backgroundColor: '#000000',
     borderRadius: 14,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     position: 'relative',
   },
   textOverlayAnchor: {
@@ -788,7 +904,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   textShadowEffect: {
-    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowColor: 'rgba(0, 0, 0, 0.95)',
     textShadowOffset: { width: 1.5, height: 1.5 },
     textShadowRadius: 3,
   },
@@ -816,228 +932,332 @@ const styles = StyleSheet.create({
   cornerTR: { top: -4, right: -4 },
   cornerBL: { bottom: -4, left: -4 },
   cornerBR: { bottom: -4, right: -4 },
+  topBar: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 1010,
+    gap: 8,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.35)',
+  },
+  titleBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  actionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  addBtn: {
+    backgroundColor: 'rgba(99, 102, 241, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(129, 140, 248, 0.4)',
+  },
+  deleteBtn: {
+    backgroundColor: 'rgba(239, 68, 68, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.4)',
+  },
+  focusToggleBtn: {
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  focusToggleBtnActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.85)',
+    borderColor: '#818CF8',
+  },
+  doneBtn: {
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  doneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
   bottomBar: {
     position: 'absolute',
-    left: 14,
-    right: 14,
     alignItems: 'center',
     zIndex: 1010,
   },
   dockSurface: {
     width: '100%',
-    maxWidth: 680,
-    backgroundColor: 'rgba(15, 23, 42, 0.96)',
-    borderRadius: 22,
+    maxWidth: 620,
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.18)',
-    padding: 12,
+    padding: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  inspectorContentWrapper: {
+    width: '100%',
+  },
+  emptyInspectorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  emptyPromptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.4)',
+  },
+  emptyPromptText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.85)',
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 8,
+    backgroundColor: 'rgba(30, 41, 59, 0.75)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 6,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   textInput: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    paddingVertical: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
   toggleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    gap: 4,
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   toggleBadgeActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.8)',
+    backgroundColor: 'rgba(99, 102, 241, 0.65)',
     borderColor: '#818CF8',
   },
   toggleBadgeText: {
     color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   toggleBadgeTextActive: {
     color: '#FFFFFF',
   },
   modeTabsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 6,
-    marginTop: 10,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   modeTabBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
-    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    borderRadius: 9,
+    backgroundColor: 'rgba(30, 41, 59, 0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   modeTabBtnActive: {
-    backgroundColor: '#6366F1',
+    backgroundColor: 'rgba(99, 102, 241, 0.65)',
+    borderColor: '#818CF8',
   },
   modeTabBtnText: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
   },
   modeTabBtnTextActive: {
     color: '#FFFFFF',
   },
   fontPanel: {
-    marginTop: 4,
+    gap: 6,
   },
   categoryScroll: {
-    gap: 6,
-    paddingVertical: 4,
+    gap: 5,
+    paddingBottom: 2,
   },
   catPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 12,
     backgroundColor: 'rgba(30, 41, 59, 0.7)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   catPillActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.5)',
+    backgroundColor: '#6366F1',
     borderColor: '#818CF8',
   },
   catPillText: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
   catPillTextActive: {
     color: '#FFFFFF',
   },
   fontsScroll: {
-    gap: 8,
-    paddingVertical: 8,
+    gap: 6,
+    paddingVertical: 2,
   },
   fontCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.85)',
-    borderRadius: 12,
+    width: 90,
+    height: 48,
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
-    minWidth: 90,
+    justifyContent: 'center',
+    padding: 3,
   },
   fontCardSelected: {
+    backgroundColor: 'rgba(99, 102, 241, 0.55)',
     borderColor: '#818CF8',
-    backgroundColor: 'rgba(99, 102, 241, 0.35)',
   },
   fontCardPreview: {
-    color: '#E2E8F0',
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
+    color: '#FFFFFF',
+    fontSize: 12,
+    textAlign: 'center',
   },
   fontCardPreviewSelected: {
     color: '#FFFFFF',
     fontWeight: '700',
   },
   fontCardCategory: {
-    color: '#64748B',
-    fontSize: 9,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+    color: '#94A3B8',
+    fontSize: 8,
+    marginTop: 1,
   },
   colorPanel: {
-    marginTop: 4,
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   panelSectionTitle: {
-    color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 9.5,
     fontWeight: '700',
-    marginBottom: 6,
+    letterSpacing: 1,
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+    marginBottom: 4,
   },
   paletteScroll: {
-    gap: 8,
+    gap: 7,
     paddingVertical: 2,
   },
   colorCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bgPillCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   colorCircleSelected: {
     borderColor: '#FFFFFF',
-    transform: [{ scale: 1.15 }],
+    transform: [{ scale: 1.18 }],
+  },
+  bgPillCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sizePanel: {
-    marginTop: 6,
-    paddingVertical: 4,
-    alignItems: 'center',
+    gap: 6,
   },
   sizeStepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    marginBottom: 10,
+    justifyContent: 'center',
+    gap: 12,
   },
   sizeStepBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(30, 41, 59, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   sizeValueDisplay: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
-    minWidth: 70,
+    minWidth: 50,
     textAlign: 'center',
   },
   presetChipsRow: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'center',
+    gap: 5,
   },
   sizeChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
     backgroundColor: 'rgba(30, 41, 59, 0.7)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -1048,30 +1268,10 @@ const styles = StyleSheet.create({
   },
   sizeChipText: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
   sizeChipTextSelected: {
     color: '#FFFFFF',
-  },
-  emptyPromptBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.94)',
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.4)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  emptyPromptText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
   },
 });

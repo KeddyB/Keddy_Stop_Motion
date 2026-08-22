@@ -166,9 +166,8 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     backdropUri: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=800&auto=format&fit=crop&q=80',
   });
 
-  // Onion Skin Blink & Quick Flip State
+  // Onion Skin Blink State
   const [isBlinkVisible, setIsBlinkVisible] = useState(true);
-  const [isManualFlip, setIsManualFlip] = useState(false);
 
   // Frames & Timeline
   const [frames, setFrames] = useState<Frame[]>(project.frames || []);
@@ -325,16 +324,72 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     return () => sub.remove();
   }, [showFullScreenPlayback, showStudioSettings, showSmearModal, isDoodleMode, isSoloView, isPlaying, onClose]);
 
-  // 2. Playback sequence timer & Audio Sync (with Loop / Bounce / Once support)
+  const audioDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pre-load / pre-warm audio player whenever audioTrack is changed
+  useEffect(() => {
+    if (playerRef.current) {
+      try {
+        playerRef.current.pause();
+        playerRef.current.release();
+      } catch {}
+      playerRef.current = null;
+    }
+
+    if (audioTrack?.uri) {
+      try {
+        const player = createAudioPlayer({ uri: audioTrack.uri });
+        player.loop = true;
+        player.volume = audioTrack.volume ?? 1.0;
+        playerRef.current = player;
+      } catch (e) {
+        console.warn('Eager audio player init error:', e);
+      }
+    }
+
+    return () => {
+      if (audioDelayTimerRef.current) {
+        clearTimeout(audioDelayTimerRef.current);
+        audioDelayTimerRef.current = null;
+      }
+      if (playerRef.current) {
+        try {
+          playerRef.current.pause();
+          playerRef.current.release();
+        } catch {}
+      }
+    };
+  }, [audioTrack?.uri, audioTrack?.volume]);
+
+  // 2. Playback sequence timer & Audio Sync (with Loop / Bounce / Once & startOffset support)
   useEffect(() => {
     const startAudioSync = () => {
+      if (audioDelayTimerRef.current) {
+        clearTimeout(audioDelayTimerRef.current);
+        audioDelayTimerRef.current = null;
+      }
+
       if (audioTrack?.uri) {
         try {
           if (!playerRef.current) {
             playerRef.current = createAudioPlayer({ uri: audioTrack.uri });
             playerRef.current.loop = true;
           }
-          playerRef.current.play();
+          playerRef.current.volume = audioTrack.volume ?? 1.0;
+
+          const offsetMs = Math.max(0, Math.round((audioTrack.startOffsetSeconds || 0) * 1000));
+          if (offsetMs === 0) {
+            playerRef.current.seekTo(0);
+            playerRef.current.play();
+          } else {
+            playerRef.current.pause();
+            playerRef.current.seekTo(0);
+            audioDelayTimerRef.current = setTimeout(() => {
+              if (playerRef.current) {
+                playerRef.current.play();
+              }
+            }, offsetMs);
+          }
         } catch (e) {
           console.warn('Audio play error:', e);
         }
@@ -342,6 +397,10 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
     };
 
     const stopAudioSync = () => {
+      if (audioDelayTimerRef.current) {
+        clearTimeout(audioDelayTimerRef.current);
+        audioDelayTimerRef.current = null;
+      }
       if (playerRef.current) {
         try {
           playerRef.current.pause();
@@ -1745,7 +1804,7 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
                 nextOpacity={onionConfig.nextOpacity}
                 aspectFitMode={settings.aspectFitMode}
                 mode={onionConfig.mode || 'ghost'}
-                isBlinkVisible={isManualFlip ? true : isBlinkVisible}
+                isBlinkVisible={isBlinkVisible}
               />
             ))}
 
@@ -2236,27 +2295,6 @@ export const CameraStudioScreen: React.FC<CameraStudioScreenProps> = ({
             <Ionicons name="camera-reverse-outline" size={21} color="#FFFFFF" />
           </Pressable>
 
-          {/* 10. Quick Flip / Blink Toggle */}
-          <Pressable
-            unstable_pressDelay={0}
-            pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            style={({ pressed }) => [
-              styles.toolbarIconButton,
-              isManualFlip && styles.toolbarIconBtnActive,
-              frames.length === 0 && styles.disabledHudBtn,
-              {
-                opacity: frames.length === 0 ? 0.35 : pressed ? 0.75 : 1,
-                transform: [{ scale: pressed ? 0.88 : 1 }],
-              },
-            ]}
-            disabled={frames.length === 0}
-            onPressIn={() => setIsManualFlip(true)}
-            onPressOut={() => setIsManualFlip(false)}
-            onPress={() => setIsManualFlip(!isManualFlip)}
-          >
-            <Ionicons name="flash" size={19} color={isManualFlip ? '#FBBF24' : '#FFFFFF'} />
-          </Pressable>
 
           {/* 11. Chroma Key (Green Screen) Studio */}
           <Pressable

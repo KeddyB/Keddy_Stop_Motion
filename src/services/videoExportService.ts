@@ -262,7 +262,16 @@ export const videoExportService = {
             let audioPart = '';
             if (project.audioTrack?.uri) {
                const cleanAudio = project.audioTrack.uri.replace(/^file:\/\//, '');
-               audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 192k `;
+               const delayMs = Math.max(0, Math.round((project.audioTrack.startOffsetSeconds || 0) * 1000));
+               const afilters: string[] = [];
+               if (delayMs > 0) {
+                 afilters.push(`adelay=${delayMs}|${delayMs}`);
+               }
+               if (project.audioTrack.volume !== undefined && project.audioTrack.volume !== 1.0) {
+                 afilters.push(`volume=${project.audioTrack.volume}`);
+               }
+               const afClause = afilters.length > 0 ? `-af "${afilters.join(',')}" ` : '';
+               audioPart = `-stream_loop -1 -i "${cleanAudio}" ${afClause}-shortest -c:a aac -b:a 192k `;
             }
             const vfPart = `-vf "${scaleFilter}" `;
             
@@ -298,7 +307,16 @@ export const videoExportService = {
              let audioPart = '';
              if (project.audioTrack?.uri) {
                 const cleanAudio = project.audioTrack.uri.replace(/^file:\/\//, '');
-                audioPart = `-stream_loop -1 -i "${cleanAudio}" -shortest -c:a aac -b:a 192k `;
+                const delayMs = Math.max(0, Math.round((project.audioTrack.startOffsetSeconds || 0) * 1000));
+                const afilters: string[] = [];
+                if (delayMs > 0) {
+                  afilters.push(`adelay=${delayMs}|${delayMs}`);
+                }
+                if (project.audioTrack.volume !== undefined && project.audioTrack.volume !== 1.0) {
+                  afilters.push(`volume=${project.audioTrack.volume}`);
+                }
+                const afClause = afilters.length > 0 ? `-af "${afilters.join(',')}" ` : '';
+                audioPart = `-stream_loop -1 -i "${cleanAudio}" ${afClause}-shortest -c:a aac -b:a 192k `;
              }
              const vfPart = `-vf "${scaleFilter}" `;
              const fallbackCmd = `-y -framerate ${fps} -i "${cleanInputPattern}" ${audioPart}${vfPart}-c:v mpeg4 -qscale:v 1 -g ${Math.max(1, fps)} -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 -color_trc bt709 -brand mp42 -vsync 0 -avoid_negative_ts make_zero -movflags +faststart "${cleanOutput}"`;

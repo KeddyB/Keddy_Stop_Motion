@@ -15,6 +15,9 @@ export interface AudioTrack {
   uri: string;
   name: string;
   durationSeconds?: number;
+  startOffsetSeconds?: number; // Starting delay / offset along animation timeline (in seconds)
+  volume?: number; // 0.0 to 1.0 (default 1.0)
+  waveformSamples?: number[]; // Normalized waveform amplitude peaks [0.0 - 1.0] for visual display
 }
 
 export interface StopMotionProject {

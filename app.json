@@ -83,7 +83,8 @@
       ],
       "expo-audio",
       "expo-image",
-      "./with-ffmpeg.js"
+      "./with-ffmpeg.js",
+      "expo-splash-screen"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

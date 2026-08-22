@@ -1,12 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
+  Modal,
   View,
   Text,
   StyleSheet,
   Pressable,
   PanResponder,
   GestureResponderEvent,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,9 +59,13 @@ export const DoodleCanvas: React.FC<DoodleCanvasProps> = ({
   totalFrames,
 }) => {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
+
   const [selectedColor, setSelectedColor] = useState('#EF4444');
   const [selectedSize, setSelectedSize] = useState(6);
   const [currentPath, setCurrentPath] = useState<Point[]>([]);
+  const [isFocusMode, setIsFocusMode] = useState(false); // Maximize canvas mode
 
   // Keep latest state in refs so PanResponder always executes with fresh closures
   const selectedColorRef = useRef(selectedColor);
@@ -118,246 +123,318 @@ export const DoodleCanvas: React.FC<DoodleCanvasProps> = ({
   const hasStrokes = strokes.length > 0;
 
   return (
-    <View style={styles.fullOverlay} pointerEvents="box-none">
-      {/* Dimmed Studio Background */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none" />
-
-      {/* Top Header Bar */}
-      <View style={[styles.topBar, { top: insets.top + 8 }]} pointerEvents="box-none">
-        <Pressable
-          style={({ pressed }) => [
-            styles.backBtn,
-            { transform: [{ scale: pressed ? 0.92 : 1 }] },
+    <Modal
+      visible={true}
+      transparent={false}
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.fullOverlay}>
+        {/* Top Header Bar */}
+        <View
+          style={[
+            styles.topBar,
+            {
+              top: Math.max(insets.top + 6, 12),
+              left: Math.max(insets.left + 12, 12),
+              right: Math.max(insets.right + 12, 12),
+            },
           ]}
-          unstable_pressDelay={0}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          onPress={onClose}
+          pointerEvents="box-none"
         >
-          <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
-        </Pressable>
-
-        <View style={styles.titleBadge}>
-          <Ionicons name="brush" size={15} color="#818CF8" style={{ marginRight: 6 }} />
-          <Text style={styles.titleBadgeText}>
-            Doodle Mode • Frame #{frameIndex + 1}
-            {totalFrames ? ` of ${totalFrames}` : ''}
-          </Text>
-        </View>
-
-        <View style={styles.topActions}>
-          {onUndoLastStroke && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.undoBtn,
-                !hasStrokes && styles.disabledBtn,
-                { transform: [{ scale: pressed && hasStrokes ? 0.92 : 1 }] },
-              ]}
-              disabled={!hasStrokes}
-              unstable_pressDelay={0}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={onUndoLastStroke}
-            >
-              <Ionicons name="arrow-undo" size={16} color={hasStrokes ? '#FFFFFF' : '#64748B'} />
-              <Text style={[styles.actionBtnText, !hasStrokes && styles.disabledBtnText]}>Undo</Text>
-            </Pressable>
-          )}
-
           <Pressable
             style={({ pressed }) => [
-              styles.actionBtn,
-              styles.clearBtn,
-              !hasStrokes && styles.disabledBtn,
-              { transform: [{ scale: pressed && hasStrokes ? 0.92 : 1 }] },
-            ]}
-            disabled={!hasStrokes}
-            unstable_pressDelay={0}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            onPress={onClearDoodles}
-          >
-            <Ionicons name="trash" size={16} color={hasStrokes ? '#FFFFFF' : '#64748B'} />
-            <Text style={[styles.actionBtnText, !hasStrokes && styles.disabledBtnText]}>Clear</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.actionBtn,
-              styles.doneBtn,
+              styles.backBtn,
               { transform: [{ scale: pressed ? 0.92 : 1 }] },
             ]}
             unstable_pressDelay={0}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             onPress={onClose}
           >
-            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-            <Text style={styles.doneBtnText}>Done</Text>
+            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
           </Pressable>
-        </View>
-      </View>
 
-      {/* Main Drawing Canvas Centered in Viewport */}
-      <View style={styles.canvasContainer} pointerEvents="box-none">
-        <View
-          style={[
-            styles.stageBox,
-            {
-              aspectRatio: aspectRatio,
-              width: aspectRatio >= 1 ? '100%' : 'auto',
-              height: aspectRatio >= 1 ? 'auto' : '100%',
-              maxWidth: '100%',
-              maxHeight: '100%',
-            },
-          ]}
-          {...panResponder.panHandlers}
-        >
-          {/* Target Frame Image under Doodles */}
-          {frameUri ? (
-            <ExpoImage
-              source={{ uri: frameUri }}
-              style={StyleSheet.absoluteFill}
-              contentFit="contain"
-              transition={0}
-              cachePolicy="memory-disk"
-              priority="high"
-            />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1E293B' }]} />
+          {!isFocusMode && (
+            <View style={styles.titleBadge}>
+              <Ionicons name="brush" size={14} color="#818CF8" style={{ marginRight: 6 }} />
+              <Text style={styles.titleBadgeText}>
+                Doodle • Frame #{frameIndex + 1}
+                {totalFrames ? `/${totalFrames}` : ''}
+              </Text>
+            </View>
           )}
 
-          {/* SVG Strokes Layer */}
-          <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-            {/* Render saved strokes */}
-            {strokes.map((stroke) => (
-              <Path
-                key={stroke.id}
-                d={pointsToSvgPath(stroke.points)}
-                stroke={stroke.color}
-                strokeWidth={stroke.strokeWidth}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
+          <View style={styles.topActions}>
+            {/* Fullscreen / Focus Canvas Toggle */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                styles.focusToggleBtn,
+                isFocusMode && styles.focusToggleBtnActive,
+                { transform: [{ scale: pressed ? 0.92 : 1 }] },
+              ]}
+              unstable_pressDelay={0}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => setIsFocusMode(!isFocusMode)}
+            >
+              <Ionicons
+                name={isFocusMode ? 'contract' : 'scan-outline'}
+                size={16}
+                color="#FFFFFF"
               />
-            ))}
+              {!isLandscape && (
+                <Text style={styles.actionBtnText}>
+                  {isFocusMode ? 'Tools' : 'Full Screen'}
+                </Text>
+              )}
+            </Pressable>
 
-            {/* Render active in-progress stroke */}
-            {currentPath.length > 0 && (
-              <Path
-                d={pointsToSvgPath(currentPath)}
-                stroke={selectedColor}
-                strokeWidth={selectedSize}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            )}
-          </Svg>
-        </View>
-      </View>
-
-      {/* Bottom Color Palette & Brush Size Control Dock */}
-      <View
-        style={[styles.bottomBar, { bottom: Math.max(insets.bottom + 8, 18) }]}
-        pointerEvents="box-none"
-      >
-        <View style={styles.dockSurface}>
-          {/* Color Palette Row */}
-          <View style={styles.paletteRow}>
-            {COLOR_PALETTE.map((color) => {
-              const isSelected = selectedColor === color;
-              return (
-                <Pressable
-                  key={color}
-                  unstable_pressDelay={0}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  style={({ pressed }) => [
-                    styles.colorCircle,
-                    { backgroundColor: color },
-                    isSelected && styles.selectedColorCircle,
-                    { transform: [{ scale: pressed ? 0.90 : 1 }] },
-                  ]}
-                  onPress={() => setSelectedColor(color)}
-                >
-                  {isSelected && (
-                    <Ionicons
-                      name="checkmark"
-                      size={14}
-                      color={color === '#FFFFFF' || color === '#FBBF24' ? '#000000' : '#FFFFFF'}
-                    />
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Brush Size Selector */}
-          <View style={styles.sizeRow}>
-            {BRUSH_SIZES.map((b) => {
-              const isSelected = selectedSize === b.size;
-              return (
-                <Pressable
-                  key={b.size}
-                  unstable_pressDelay={0}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  style={({ pressed }) => [
-                    styles.sizeBtn,
-                    isSelected && styles.selectedSizeBtn,
-                    { transform: [{ scale: pressed ? 0.94 : 1 }] },
-                  ]}
-                  onPress={() => setSelectedSize(b.size)}
-                >
-                  <View
-                    style={[
-                      styles.sizeDot,
-                      {
-                        width: Math.max(6, b.size),
-                        height: Math.max(6, b.size),
-                        borderRadius: Math.max(6, b.size) / 2,
-                        backgroundColor: isSelected ? '#FFFFFF' : '#94A3B8',
-                      },
-                    ]}
-                  />
-                  <Text style={[styles.sizeLabel, { color: isSelected ? '#FFFFFF' : '#94A3B8' }]}>
-                    {b.label}
+            {onUndoLastStroke && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  styles.undoBtn,
+                  !hasStrokes && styles.disabledBtn,
+                  { transform: [{ scale: pressed && hasStrokes ? 0.92 : 1 }] },
+                ]}
+                disabled={!hasStrokes}
+                unstable_pressDelay={0}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={onUndoLastStroke}
+              >
+                <Ionicons name="arrow-undo" size={16} color={hasStrokes ? '#FFFFFF' : '#64748B'} />
+                {!isLandscape && (
+                  <Text style={[styles.actionBtnText, !hasStrokes && styles.disabledBtnText]}>
+                    Undo
                   </Text>
-                </Pressable>
-              );
-            })}
+                )}
+              </Pressable>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                styles.clearBtn,
+                !hasStrokes && styles.disabledBtn,
+                { transform: [{ scale: pressed && hasStrokes ? 0.92 : 1 }] },
+              ]}
+              disabled={!hasStrokes}
+              unstable_pressDelay={0}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={onClearDoodles}
+            >
+              <Ionicons name="trash" size={16} color={hasStrokes ? '#FFFFFF' : '#64748B'} />
+              {!isLandscape && (
+                <Text style={[styles.actionBtnText, !hasStrokes && styles.disabledBtnText]}>
+                  Clear
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                styles.doneBtn,
+                { transform: [{ scale: pressed ? 0.92 : 1 }] },
+              ]}
+              unstable_pressDelay={0}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={onClose}
+            >
+              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              <Text style={styles.doneBtnText}>Done</Text>
+            </Pressable>
           </View>
         </View>
+
+        {/* Full-Screen Drawing Canvas Viewport */}
+        <View
+          style={[
+            styles.canvasContainer,
+            isLandscape && styles.canvasContainerLandscape,
+            isFocusMode && styles.canvasContainerFocus,
+          ]}
+          pointerEvents="box-none"
+        >
+          <View
+            style={[
+              styles.stageBox,
+              {
+                aspectRatio: aspectRatio,
+                width: isLandscape
+                  ? (aspectRatio >= 1 ? 'auto' : 'auto')
+                  : (aspectRatio >= 1 ? '100%' : 'auto'),
+                height: isLandscape
+                  ? '96%'
+                  : (aspectRatio >= 1 ? 'auto' : '96%'),
+                maxWidth: '100%',
+                maxHeight: '100%',
+              },
+            ]}
+            {...panResponder.panHandlers}
+          >
+            {/* Target Frame Image under Doodles */}
+            {frameUri ? (
+              <ExpoImage
+                source={{ uri: frameUri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="contain"
+                transition={0}
+                cachePolicy="memory-disk"
+                priority="high"
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1E293B' }]} />
+            )}
+
+            {/* SVG Strokes Layer */}
+            <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+              {/* Render saved strokes */}
+              {strokes.map((stroke) => (
+                <Path
+                  key={stroke.id}
+                  d={pointsToSvgPath(stroke.points)}
+                  stroke={stroke.color}
+                  strokeWidth={stroke.strokeWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              ))}
+
+              {/* Render active in-progress stroke */}
+              {currentPath.length > 0 && (
+                <Path
+                  d={pointsToSvgPath(currentPath)}
+                  stroke={selectedColor}
+                  strokeWidth={selectedSize}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              )}
+            </Svg>
+          </View>
+        </View>
+
+        {/* Bottom Color Palette & Brush Size Control Dock */}
+        {!isFocusMode && (
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                bottom: Math.max(insets.bottom + 6, 12),
+                left: Math.max(insets.left + 12, 12),
+                right: Math.max(insets.right + 12, 12),
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            <View style={[styles.dockSurface, isLandscape && styles.dockSurfaceLandscape]}>
+              {/* Color Palette Row */}
+              <View style={styles.paletteRow}>
+                {COLOR_PALETTE.map((color) => {
+                  const isSelected = selectedColor === color;
+                  return (
+                    <Pressable
+                      key={color}
+                      unstable_pressDelay={0}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      style={({ pressed }) => [
+                        styles.colorCircle,
+                        { backgroundColor: color },
+                        isSelected && styles.selectedColorCircle,
+                        { transform: [{ scale: pressed ? 0.90 : 1 }] },
+                      ]}
+                      onPress={() => setSelectedColor(color)}
+                    >
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark"
+                          size={13}
+                          color={color === '#FFFFFF' || color === '#FBBF24' ? '#000000' : '#FFFFFF'}
+                        />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Brush Size Selector */}
+              <View style={styles.sizeRow}>
+                {BRUSH_SIZES.map((b) => {
+                  const isSelected = selectedSize === b.size;
+                  return (
+                    <Pressable
+                      key={b.size}
+                      unstable_pressDelay={0}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      style={({ pressed }) => [
+                        styles.sizeBtn,
+                        isSelected && styles.selectedSizeBtn,
+                        { transform: [{ scale: pressed ? 0.94 : 1 }] },
+                      ]}
+                      onPress={() => setSelectedSize(b.size)}
+                    >
+                      <View
+                        style={[
+                          styles.sizeDot,
+                          {
+                            width: Math.max(5, b.size),
+                            height: Math.max(5, b.size),
+                            borderRadius: Math.max(5, b.size) / 2,
+                            backgroundColor: isSelected ? '#FFFFFF' : '#94A3B8',
+                          },
+                        ]}
+                      />
+                      <Text style={[styles.sizeLabel, { color: isSelected ? '#FFFFFF' : '#94A3B8' }]}>
+                        {b.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        )}
       </View>
-    </View>
+    </Modal>
   );
 };
 
 const styles = StyleSheet.create({
   fullOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: '#090D16',
-    zIndex: 999,
+    position: 'relative',
   },
   canvasContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingTop: 56,
+    paddingBottom: 72,
+  },
+  canvasContainerLandscape: {
     paddingHorizontal: 12,
-    paddingTop: 70,
-    paddingBottom: 90,
+    paddingTop: 48,
+    paddingBottom: 58,
+  },
+  canvasContainerFocus: {
+    paddingTop: 44,
+    paddingBottom: 8,
   },
   stageBox: {
     backgroundColor: '#000000',
     borderRadius: 14,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   topBar: {
     position: 'absolute',
-    left: 16,
-    right: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -365,10 +442,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
@@ -377,16 +454,16 @@ const styles = StyleSheet.create({
   titleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(99, 102, 241, 0.35)',
   },
   titleBadgeText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   topActions: {
@@ -398,14 +475,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
   actionBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
+  },
+  focusToggleBtn: {
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  focusToggleBtnActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.85)',
+    borderColor: '#818CF8',
   },
   undoBtn: {
     backgroundColor: 'rgba(99, 102, 241, 0.85)',
@@ -419,12 +505,12 @@ const styles = StyleSheet.create({
   },
   doneBtn: {
     backgroundColor: '#6366F1',
-    paddingHorizontal: 13,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   doneBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   disabledBtn: {
@@ -437,20 +523,18 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     position: 'absolute',
-    left: 16,
-    right: 16,
     alignItems: 'center',
     zIndex: 1010,
   },
   dockSurface: {
     width: '100%',
-    maxWidth: 620,
+    maxWidth: 600,
     backgroundColor: 'rgba(15, 23, 42, 0.94)',
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.18)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -460,26 +544,30 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 8,
   },
+  dockSurfaceLandscape: {
+    maxWidth: 680,
+    paddingVertical: 6,
+  },
   paletteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 6,
     flex: 1,
     flexWrap: 'nowrap',
     overflow: 'hidden',
   },
   colorCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   selectedColorCircle: {
     borderColor: '#FFFFFF',
-    transform: [{ scale: 1.2 }],
+    transform: [{ scale: 1.18 }],
     shadowColor: '#FFFFFF',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.5,
@@ -489,26 +577,26 @@ const styles = StyleSheet.create({
   sizeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     borderLeftWidth: 1,
     borderLeftColor: 'rgba(255, 255, 255, 0.2)',
-    paddingLeft: 8,
-    marginLeft: 6,
+    paddingLeft: 6,
+    marginLeft: 5,
   },
   sizeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderRadius: 8,
-    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 7,
+    gap: 3,
   },
   selectedSizeBtn: {
     backgroundColor: 'rgba(99, 102, 241, 0.45)',
   },
   sizeDot: {},
   sizeLabel: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
   },
 });

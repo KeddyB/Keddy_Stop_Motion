@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import * as ExpoSplashScreen from 'expo-splash-screen';
 import { useTheme } from '../theme/ThemeContext';
 
 interface SplashScreenProps {
@@ -26,6 +27,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
   const containerOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    // Hide native OS splash screen once the custom animated component is mounted
+    ExpoSplashScreen.hideAsync().catch(() => {});
+
     // Staggered cinematic entrance
     Animated.sequence([
       Animated.parallel([
